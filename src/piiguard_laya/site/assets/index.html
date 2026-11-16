@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>piiguard-laya 결과</title><link rel="stylesheet" href="_site/site.css"></head>
+<body>
+<nav class="nav"><div class="nav-in"><a class="brand" href="index.html">piiguard-laya</a>
+  <a class="link" data-page="index" href="index.html">홈</a><a class="link" data-page="dashboard" href="dashboard.html">대시보드</a>
+  <a class="link" data-page="evals" href="evals.html">모델 비교</a><a class="link" data-page="predictions" href="predictions.html">예측 결과</a>
+  <span class="gen"></span></div></nav>
+<main class="wrap">
+  <header class="sec">
+    <h1>Laya PII 가드레일 평가 결과</h1>
+    <p class="lede">개인정보(PII)가 들어 있는 문장을 Laya 결정 모델이 얼마나 잘 잡아내고, 정상 문장을 얼마나 잘못 막는지 데이터셋별로 측정한 결과입니다.</p>
+    <div class="grid g4" id="stats"></div>
+  </header>
+
+  <section class="sec">
+    <h2>페이지</h2>
+    <div class="grid g3">
+      <a class="card" href="dashboard.html"><span class="label">대시보드</span><span class="desc">평가한 모든 모델의 주요 지표를 한 표에서 비교합니다.</span></a>
+      <a class="card" href="evals.html"><span class="label">모델 비교</span><span class="desc">모델 하나를 기준 모델과 운영 기준·데이터셋·유형·변조 입력별로 나란히 비교합니다.</span></a>
+      <a class="card" href="predictions.html"><span class="label">예측 결과</span><span class="desc">평가 문장 하나하나의 원문, 정답, 모델 점수, 판정, 모델이 고른 유형을 봅니다.</span></a>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>모델</h2>
+    <p class="muted small">평가한 모델과, 학습했지만 아직 평가하지 않은 모델입니다. 직접 학습한 모델은 <code>models/trained/&lt;이름&gt;/</code> 에 있습니다.</p>
+    <div class="tw"><table><thead><tr><th>모델</th><th>종류</th><th>기준 모델 · 계보</th><th>학습 데이터</th><th>만든 날</th><th>평가한 날</th><th>평가 데이터셋</th><th>AUROC (전체)</th><th></th></tr></thead>
+      <tbody id="models"></tbody></table></div>
+  </section>
+
+  <section class="sec">
+    <h2>평가용 데이터셋</h2>
+    <p class="muted small"><code>datasets/&lt;이름&gt;/</code> 의 데이터셋입니다. calib 행은 모델별 임계값을 정하는 데만 쓰고, 성능은 test 행으로 측정합니다.</p>
+    <div class="tw"><table><thead><tr><th>이름</th><th>설명</th><th>언어</th><th>calib (PII / 정상)</th><th>test (PII / 정상)</th><th>라이선스 · 출처</th></tr></thead>
+      <tbody id="datasets"></tbody></table></div>
+  </section>
+
+  <section class="sec">
+    <h2>학습용 데이터셋</h2>
+    <p class="muted small"><code>training/&lt;이름&gt;/</code> 의 데이터셋입니다. 평가용과 분리되어 있고, 학습할 때 평가용 문장과 겹치는 행은 자동으로 빠집니다.</p>
+    <div class="tw"><table><thead><tr><th>이름</th><th>설명</th><th>건수 (PII / 정상)</th><th>출처</th></tr></thead><tbody id="training"></tbody></table></div>
+  </section>
+
+  <section class="sec">
+    <h2>사용법</h2>
+<pre>make prepare                                        # 기본 데이터셋 내려받기 · 변환 (datasets/, training/seed)
+make bench MODEL=laya-multilingual                  # 모든 평가용 데이터셋으로 평가 → reports/laya-multilingual/
+make bench MODEL=laya-multilingual DATASET=kdpii_ko # 데이터셋 하나만
+make train BASE=laya-multilingual NAME=r1 DATA=seed # 학습 → models/trained/r1/
+make bench MODEL=r1                                 # 학습한 모델 평가
+make site                                           # 이 페이지들 다시 만들기 (bench · train 뒤에는 자동)</pre>
+  </section>
+</main>
+<script src="_site/data/summary.js"></script><script src="_site/site.js"></script><script src="_site/index.js"></script>
+</body></html>

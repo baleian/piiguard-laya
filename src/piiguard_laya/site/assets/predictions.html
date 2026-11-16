@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>예측 결과 · piiguard-laya</title><link rel="stylesheet" href="_site/site.css"></head>
+<body>
+<nav class="nav"><div class="nav-in"><a class="brand" href="index.html">piiguard-laya</a>
+  <a class="link" data-page="index" href="index.html">홈</a><a class="link" data-page="dashboard" href="dashboard.html">대시보드</a>
+  <a class="link" data-page="evals" href="evals.html">모델 비교</a><a class="link" data-page="predictions" href="predictions.html">예측 결과</a>
+  <span class="gen"></span></div></nav>
+<main class="wrap" style="gap:20px">
+  <header class="sec">
+    <h1>예측 결과</h1>
+    <p class="lede">모델이 평가 문장 하나하나를 어떻게 판정했는지 정답과 함께 봅니다. 맞힌 문장과 틀린 문장이 모두 들어 있습니다.</p>
+  </header>
+  <div class="controls">
+    <label for="m">모델<select id="m"></select></label>
+    <label for="op">운영 기준<select id="op"></select></label>
+    <label for="kind">결과<select id="kind">
+      <option value="ALL">전체</option><option value="ERR">틀린 것 전체</option><option value="FN">미검출 (개인정보를 놓침)</option>
+      <option value="FP">오탐 (정상 문장을 막음)</option><option value="OK">맞힌 것</option></select></label>
+    <label for="ds">데이터셋<select id="ds"></select></label>
+    <label for="lang">언어<select id="lang"><option value="">전체</option><option value="ko">한국어</option><option value="en">영어</option></select></label>
+    <label for="cat">개인정보 유형 (정답)<select id="cat"></select></label>
+    <label for="sort">정렬<select id="sort"><option value="conf">확신하고 틀린 순</option><option value="score_desc">점수 높은 순</option>
+      <option value="score_asc">점수 낮은 순</option><option value="dataset">데이터셋 순</option></select></label>
+    <label for="q">문장 검색<input type="search" id="q" placeholder="단어 입력"></label>
+  </div>
+  <div class="grid g4" id="cards"></div>
+  <details class="box">
+    <summary>열 설명</summary>
+    <ul>
+      <li><b>결과</b>: 정답과 판정을 비교한 것. 미검출 = 개인정보 문장을 통과시킴, 오탐 = 정상 문장을 차단함.</li>
+      <li><b>정답 (데이터셋 라벨)</b>: 데이터셋에 들어 있는 정답. 개인정보 포함 여부와, 들어 있는 개인정보 유형.</li>
+      <li><b>모델 점수 · 판정</b>: 모델이 낸 '개인정보 포함' 확률(0~1)<span id="score-desc"></span>. 판정은 이 점수가 선택한 운영 기준의 임계값 이상이면 차단입니다.</li>
+      <li><b>모델이 고른 유형</b>: 유형 분류 질문에서 확률이 가장 높은 답과 그 확률<span id="cat-desc"></span>. '개인정보 없음'도 답이 될 수 있습니다. 차단 판정은 이 답이 아니라 점수로 합니다.</li>
+    </ul>
+  </details>
+  <div class="small muted" id="count"></div>
+  <div class="tw"><table><thead><tr><th>결과</th><th>데이터셋</th><th>문장</th><th>정답 (데이터셋 라벨)</th><th>모델 점수 · 판정</th><th>모델이 고른 유형</th></tr></thead>
+    <tbody id="rows"></tbody></table></div>
+  <div><button id="more" hidden>100건 더 보기</button></div>
+</main>
+<script src="_site/data/summary.js"></script><script src="_site/site.js"></script><script src="_site/predictions.js"></script>
+</body></html>

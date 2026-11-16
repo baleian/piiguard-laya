@@ -1,0 +1,7 @@
+# pyproject.toml 의 dependencies 와 같게 유지한다 (torch 는 Dockerfile 에서 별도 설치).
+laya==0.4.34
+pyyaml>=6.0
+numpy>=1.24
+pyarrow>=14
+huggingface_hub>=0.20
+pytest>=8

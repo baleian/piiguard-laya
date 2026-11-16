@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>모델 비교 · piiguard-laya</title><link rel="stylesheet" href="_site/site.css"></head>
+<body>
+<nav class="nav"><div class="nav-in"><a class="brand" href="index.html">piiguard-laya</a>
+  <a class="link" data-page="index" href="index.html">홈</a><a class="link" data-page="dashboard" href="dashboard.html">대시보드</a>
+  <a class="link" data-page="evals" href="evals.html">모델 비교</a><a class="link" data-page="predictions" href="predictions.html">예측 결과</a>
+  <span class="gen"></span></div></nav>
+<main class="wrap">
+  <header class="sec">
+    <h1 id="title">모델 비교</h1>
+    <div class="controls">
+      <label for="m">모델<select id="m"></select></label>
+      <label for="b">비교할 기준 모델<select id="b"></select></label>
+      <span class="small muted" id="bnote"></span>
+    </div>
+    <p class="lede" id="lede"></p>
+    <div class="row" id="verdict"></div>
+  </header>
+
+  <section class="sec" id="info-sec">
+    <h2>모델 정보</h2>
+    <div class="grid g2"><div class="card"><dl class="kv" id="info"></dl></div><div class="card" id="train-eval"></div></div>
+  </section>
+
+  <section class="sec">
+    <div class="guide">
+      <div><b>탐지율 · 높을수록 좋음</b><span class="small muted">개인정보가 들어 있는 문장을 잡아낸 비율</span></div>
+      <div><b>오탐률 · 낮을수록 좋음</b><span class="small muted">개인정보가 없는 정상 문장을 잘못 막은 비율</span></div>
+      <div><b>정확도 · 높을수록 좋음</b><span class="small muted">전체 문장 중 판정이 맞은 비율</span></div>
+      <div><b>구분 능력(AUROC) · 높을수록 좋음</b><span class="small muted">임계값과 무관한 종합 점수. 0.5 는 무작위, 1.0 은 완벽</span></div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="sec"><h2>핵심 결과</h2><div class="grid g4" id="hero"></div></section>
+
+  <section class="sec">
+    <h2>운영 기준별 비교</h2>
+    <p class="muted">모델은 문장마다 0~1 점수를 내고, 점수가 임계값 이상이면 차단합니다. 임계값을 어디에 두느냐에 따라 놓치는 개인정보와 잘못 막는 정상 문장이 서로 맞바뀝니다. 각 모델의 임계값은 평가와 별도로 떼어 둔 보정용(calib) 문장에서 정했습니다.</p>
+    <div class="grid g3" id="ops"></div>
+    <h3>언어별</h3>
+    <div class="tw"><table id="lang"></table></div>
+  </section>
+
+  <section class="sec">
+    <h2>데이터셋별 결과</h2>
+    <p class="muted">개인정보 문서만 있는 데이터셋은 오탐률이 없습니다.</p>
+    <div class="grid g2">
+      <div class="sec"><h3>탐지율 <span class="small muted">· 높을수록 좋음</span></h3><div class="tw"><table id="ds-recall"></table></div></div>
+      <div class="sec"><h3>오탐률 <span class="small muted">· 낮을수록 좋음</span></h3><div class="tw"><table id="ds-fpr"></table></div></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>개인정보 유형별 탐지율</h2>
+    <p class="muted">문장에 해당 유형이 하나라도 있으면 그 행에 셉니다. 한 문장이 여러 행에 들어갈 수 있습니다. 맨 아래 '유형 맞힘'은 개인정보 문장에서 모델이 고른 유형이 대표 유형과 같은 비율입니다.</p>
+    <div class="tw"><table id="cats"></table></div>
+  </section>
+
+  <section class="sec" id="var-sec">
+    <h2>변조 입력에 대한 강건성</h2>
+    <p class="muted">사람이 읽으면 같은 내용이지만 개인정보 값의 겉모양만 바꾼 문장입니다. 개인정보 문장은 탐지율, 정상 문장은 오탐률을 봅니다. '원문' 행이 같은 문장들의 기준입니다.</p>
+    <div class="grid g2" id="vars"></div>
+  </section>
+
+  <section class="sec">
+    <h2>실제 사례</h2>
+    <p class="muted">평가 문장 가운데 대표 사례를 데이터셋별로 고르게 뽑았습니다. '정답'은 데이터셋 라벨, 점수는 모델이 낸 '개인정보 포함' 확률, 판정은 그 점수를 해당 기준의 임계값과 비교한 차단 여부, '고른 유형'은 유형 분류 질문의 답과 확률입니다. 모든 문장은 <a id="pred-link" href="predictions.html">예측 결과</a> 에서 볼 수 있습니다.</p>
+    <div id="examples" class="sec"></div>
+  </section>
+
+  <section class="sec" id="gate-sec">
+    <h2>회귀 검사</h2>
+    <p class="muted" id="gate-desc"></p>
+    <div id="gate"></div>
+  </section>
+
+  <section class="sec">
+    <h2>처리 속도</h2>
+    <p class="muted">요청 1건을 처리하는 데 걸린 시간입니다. p50 은 절반의 요청이, p95 는 95%의 요청이 이 시간 안에 끝났다는 뜻입니다.</p>
+    <div class="tw"><table id="lat"></table></div>
+  </section>
+
+  <details class="box">
+    <summary>전문가용 상세 (신뢰구간, 혼동행렬, 질문 문구 민감도)</summary>
+    <div class="sec"><h3>운영 기준별 전체 지표</h3><div class="tw"><table id="detail"></table></div></div>
+    <div class="sec" style="margin-top:18px"><h3>질문 문구 민감도</h3>
+      <p class="small muted">미리 정해 둔 질문 문구와 그 평균(ens) 중 보정용 문장의 AUROC 가 가장 높은 것을 점수로 씁니다.</p>
+      <div class="tw"><table id="wording"></table></div></div>
+    <div class="sec" style="margin-top:18px"><h3>회귀 검사 전체</h3><div class="tw"><table id="gate-all"></table></div></div>
+  </details>
+
+  <p class="foot" id="foot"></p>
+</main>
+<script src="_site/data/summary.js"></script><script src="_site/site.js"></script><script src="_site/evals.js"></script>
+</body></html>

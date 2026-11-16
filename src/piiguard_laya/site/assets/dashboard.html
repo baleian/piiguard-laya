@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대시보드 · piiguard-laya</title><link rel="stylesheet" href="_site/site.css"></head>
+<body>
+<nav class="nav"><div class="nav-in"><a class="brand" href="index.html">piiguard-laya</a>
+  <a class="link" data-page="index" href="index.html">홈</a><a class="link" data-page="dashboard" href="dashboard.html">대시보드</a>
+  <a class="link" data-page="evals" href="evals.html">모델 비교</a><a class="link" data-page="predictions" href="predictions.html">예측 결과</a>
+  <span class="gen"></span></div></nav>
+<main class="wrap">
+  <header class="sec">
+    <h1>모든 모델 요약</h1>
+    <p class="lede">평가한 모든 모델의 주요 지표입니다. 열마다 가장 좋은 값을 굵게 표시했습니다. 모델 하나를 자세히 보려면 모델 이름을 누르세요.</p>
+    <div class="guide">
+      <div><b>탐지율 · 높을수록 좋음</b><span class="small muted">개인정보가 든 문장을 잡아낸 비율</span></div>
+      <div><b>오탐률 · 낮을수록 좋음</b><span class="small muted">정상 문장을 잘못 막은 비율</span></div>
+      <div><b>정확도 · 높을수록 좋음</b><span class="small muted">전체 판정 중 맞은 비율</span></div>
+      <div><b>AUROC · 높을수록 좋음</b><span class="small muted">임계값과 무관한 구분 능력. 0.5 는 무작위, 1.0 은 완벽</span></div>
+    </div>
+    <p class="small muted" id="ops-desc"></p>
+  </header>
+
+  <section class="sec">
+    <h2>주요 지표</h2>
+    <p class="small muted">정상 문장이 있는 데이터셋의 test 문장을 합쳐 계산했습니다. 각 모델은 자기 보정용 문장에서 정한 임계값을 씁니다.</p>
+    <div class="tw"><table id="main"></table></div>
+  </section>
+
+  <section class="sec">
+    <h2>데이터셋별 AUROC</h2>
+    <div class="tw"><table id="ds-auroc"></table></div>
+  </section>
+
+  <section class="sec" id="by-op"></section>
+
+  <section class="sec">
+    <h2>개인정보 유형별 탐지율 <span class="small muted">· 누락 최소화 기준</span></h2>
+    <div class="tw"><table id="cats"></table></div>
+  </section>
+</main>
+<script src="_site/data/summary.js"></script><script src="_site/site.js"></script><script src="_site/dashboard.js"></script>
+</body></html>

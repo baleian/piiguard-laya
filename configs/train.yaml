@@ -1,0 +1,11 @@
+# 학습 기본값 (make train 의 EPOCHS=, MICRO_BATCH= 등으로 덮어쓸 수 있다)
+epochs: 2
+micro_batch: 8        # GPU 메모리가 작으면 줄이고 grad_accum 을 늘린다 (유효 배치 = 둘의 곱)
+grad_accum: 4
+encoder_lr: 2.5e-5
+head_lr: 1.0e-4
+loss: rlcd            # rlcd (적정 점수 규칙 보상 강화학습) | soft-ce
+max_len: 1024         # 학습 시 문장 토큰 상한
+freeze_encoder: false # true 면 헤드만 학습 (CPU 에서 빠름)
+seed: 0
+eval_rows: 1500       # 학습 중 평가에 쓰는 평가용 데이터셋 calib 행 수 (gradient 에는 쓰지 않음)

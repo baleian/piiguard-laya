@@ -1,0 +1,26 @@
+# 평가 설정 (make bench)
+
+question_set: configs/questions/pii_v1.yaml   # 문구를 바꾸면 그 모델의 이전 평가 결과는 다시 만든다
+batch_size: 32                                # GPU 배치. CPU 에서는 16 정도
+
+# 운영 기준(operating point): 모델 점수가 임계값 이상이면 차단한다.
+# 임계값은 모델마다 평가용 데이터셋의 calib 행에서 정하고, 모든 데이터셋에 같은 값을 쓴다.
+operating_points:
+  recall95: {type: target_recall, value: 0.95}   # 누락 최소화: calib 개인정보 문장의 95% 이상을 차단
+  fpr05:    {type: target_fpr, value: 0.05}      # 오탐 최소화: calib 정상 문장 차단을 5% 이하로
+  default:  {type: fixed, value: 0.5}            # 기본 기준: 점수 0.5 이상 차단
+
+calibration:
+  datasets: auto            # auto = calib 행이 있는 모든 평가용 데이터셋. 목록으로 지정할 수도 있다: [kdpii_ko, synth_fin_ko]
+  limit_per_dataset: 2000   # 데이터셋마다 calib 행을 최대 몇 건 쓸지 (null = 전부)
+
+latency_requests: 200       # 요청 1건 처리 시간을 잴 문장 수
+
+# 모델 비교(회귀 검사) 기준 — 후보 모델이 기준 모델보다 나빠지지 않았는지 본다.
+gate:
+  op: fpr05
+  max_recall_drop: 0.01          # 전체 탐지율 허용 하락폭
+  max_fpr_increase: 0.01         # 전체 오탐률 허용 상승폭
+  max_dataset_recall_drop: 0.03  # 데이터셋별 탐지율 허용 하락폭
+  max_variant_recall_drop: 0.05  # 변조 유형별 탐지율 허용 하락폭
+  min_auroc_delta: 0.0

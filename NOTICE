@@ -1,0 +1,23 @@
+piiguard-laya
+Copyright 2026 piiguard-laya contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party software used as dependencies:
+  - Laya (convaiinnovations / NandhaKishorM)        Apache-2.0  https://github.com/NandhaKishorM/laya
+  - laya-mlx (mizorewww)                             Apache-2.0  https://github.com/mizorewww/laya-mlx
+  - vegaml (NandhaKishorM)                           Apache-2.0  https://github.com/NandhaKishorM/vegaml
+  - PyTorch                                          BSD-3-Clause
+  - Hugging Face transformers / huggingface_hub      Apache-2.0
+  - NumPy (BSD-3-Clause), PyArrow (Apache-2.0), PyYAML (MIT), pytest (MIT)
+
+Model checkpoints downloaded at run time:
+  - convaiinnovations/laya (multilingual, English)   Apache-2.0
+  - aac6fef/laya-multilingual-mlx, aac6fef/laya-mlx  Apache-2.0
+
+Datasets downloaded at run time:
+  - KDPII DATASET REVISED, Yonsei University HamSaeM Kim's Lab and TSCIENTIFIC Co.,Ltd.
+    CC BY 4.0, https://doi.org/10.5281/zenodo.16759166
+  - gretelai/synthetic_pii_finance_multilingual, Gretel.ai, Apache-2.0
+
+See docs/THIRD_PARTY.md for details.
