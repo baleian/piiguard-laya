@@ -1,4 +1,4 @@
-"""reports/<모델>/ 를 읽어 모델 단위 요약과 두 모델 비교(회귀 검사)를 만든다."""
+"""reports/<모델 id>/ (base/<이름>, trained/<이름>) 를 읽어 모델 단위 요약과 두 모델 비교(회귀 검사)를 만든다."""
 from __future__ import annotations
 
 import json
@@ -22,12 +22,18 @@ def _items(p: Path) -> List[Dict]:
 
 
 def list_reports(home: Optional[Path] = None) -> List[str]:
-    root = paths.reports_dir(home)
-    return sorted(d.name for d in root.iterdir() if d.is_dir() and (d / "model.json").exists() and (d / "calibration.json").exists()) \
-        if root.exists() else []
+    """평가한 모델 id 목록 (reports/base/<이름>/, reports/trained/<이름>/)."""
+    out = []
+    for kind in ("base", "trained"):
+        root = paths.reports_dir(home) / kind
+        for d in sorted(root.iterdir()) if root.exists() else []:
+            if d.is_dir() and (d / "model.json").exists() and (d / "calibration.json").exists():
+                out.append(f"{kind}/{d.name}")
+    return out
 
 
 def model_summary(home: Path, name: str, with_items: bool = False) -> Tuple[Dict[str, Any], Dict[str, List[Dict]]]:
+    """name = 모델 id (base/<이름> 또는 trained/<이름>)."""
     out = paths.reports_dir(home) / name
     model = _read(out / "model.json", {})
     calib = _read(out / "calibration.json")
@@ -55,7 +61,7 @@ def model_summary(home: Path, name: str, with_items: bool = False) -> Tuple[Dict
          "datasets": datasets, "pooled": pooled,
          "by_category": E.clean(E.by_category(all_items, calib)) if all_items else {},
          "by_variant": E.clean(E.by_variant(var_items, calib)) if var_items else {},
-         "classification": E.clean(E.classification(all_items, calib)) if all_items else {},
+         "classification": E.clean(E.classification(all_items)) if all_items else {},
          "pooled_rule": "정상 문장이 있는 데이터셋의 test 행을 합쳐 계산"}
     return s, (items if with_items else {})
 
@@ -69,8 +75,10 @@ def compare(a: Dict[str, Any], b: Dict[str, Any], rules: Dict[str, Any],
     def add(check, name, ok, base, cand, rule):
         checks.append({"check": check, "name": name, "pass": bool(ok), "baseline": base, "candidate": cand, "rule": rule})
 
-    qa, qb = a["model"].get("question_set", {}), b["model"].get("question_set", {})
-    add("same_question_set", "같은 질문 문구로 평가", qa.get("sha256") == qb.get("sha256"), qb.get("version"), qa.get("version"), "질문 세트 동일")
+    qa, qb = a["model"].get("question") or {}, b["model"].get("question") or {}
+    qlabel = lambda x: f"{x.get('id')} v{x.get('version')}" if x else None  # noqa: E731
+    add("same_question", "같은 판정 질문으로 평가", bool(qa) and qa.get("sha256") == qb.get("sha256"), qlabel(qb), qlabel(qa),
+        "판정 질문 동일")
     common = sorted(set(a["datasets"]) & set(b["datasets"]))
     same_items = all((a["datasets"][d].get("key") or {}).get("dataset_sha256") == (b["datasets"][d].get("key") or {}).get("dataset_sha256")
                      and a["datasets"][d]["n"] == b["datasets"][d]["n"] for d in common)
@@ -104,8 +112,8 @@ def compare(a: Dict[str, Any], b: Dict[str, Any], rules: Dict[str, Any],
             for it in items_a[d]:
                 if it["id"] in ib:
                     ya.append(it["label"])
-                    da.append(int(E.score_of(it, ca["score_variant"]) >= ca["thresholds"][op]))
-                    db.append(int(E.score_of(ib[it["id"]], cb["score_variant"]) >= cb["thresholds"][op]))
+                    da.append(int(it["score"] >= ca["thresholds"][op]))
+                    db.append(int(ib[it["id"]]["score"] >= cb["thresholds"][op]))
         if ya:
             mcn = M.mcnemar_exact(ya, db, da)
     return E.clean({"candidate": a["name"], "baseline": b["name"], "op": op, "pass": all(c["pass"] for c in checks),

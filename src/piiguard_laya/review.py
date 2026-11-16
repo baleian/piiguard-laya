@@ -1,12 +1,12 @@
 """운영 피드백 수집: 로그 → 검토 큐(CSV) → 검토 결과를 학습용 데이터셋에 추가.
 
-    piiguard-laya review-export --log logs.jsonl --model r1 --out feedback/queue.csv
+    piiguard-laya review-export --log logs.jsonl --model trained/r1 --out feedback/queue.csv
     (검토자가 CSV 의 review_* 열과 reviewer 를 채운다. review_values 에 문장 속 개인정보 값을 적으면
      학습 때 그 값을 같은 형식의 합성값으로 바꾼다)
     piiguard-laya review-import feedback/queue.csv --into feedback-2026-11
 
-로그 형식 (jsonl 한 줄 = 문장 하나): {"text": ..., "id": (선택), "lang": (선택), "ts": (선택)}
-모델 점수가 없으면 지정한 모델로 채점한다. 판정 임계값은 그 모델의 reports/<모델>/calibration.json 을 쓴다
+로그 형식 (jsonl 한 줄 = 문장 하나): {"text": ..., "id": (선택), "lang": (선택), "ts": (선택), "score"·"choice": (선택)}
+score(모델 점수)가 없으면 지정한 모델로 채점한다. 판정 임계값은 그 모델의 reports/<모델 id>/calibration.json 을 쓴다
 (먼저 make bench 로 평가해 둔 모델이어야 한다).
 
 뽑는 순서: 임계값 근처(불확실) → 차단된 문장 → 통과된 문장. 잘한 판정과 잘못한 판정을 모두 모으기 위해서다.
@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Dict
 
 from . import datasets as D
-from . import evaluate as E
 from . import paths, registry
 from . import taxonomy as T
 
@@ -37,9 +36,9 @@ def _hid(s: str) -> str:
 def export_queue(home: Path, log: Path, model: str, out: Path, op: str = "fpr05", band: float = 0.1, limit: int = 500,
                  device: str = "auto", backend: str = "torch") -> Dict:
     ref = registry.resolve(model, home)
-    cal_p = paths.reports_dir(home) / ref.name / "calibration.json"
+    cal_p = paths.reports_dir(home) / ref.id / "calibration.json"
     if not cal_p.exists():
-        raise SystemExit(f"{ref.name} 의 임계값이 없습니다. 먼저 `make bench MODEL={ref.name}` 를 실행하세요.")
+        raise SystemExit(f"{ref.id} 의 임계값이 없습니다. 먼저 `make bench MODEL={ref.id}` 를 실행하세요.")
     calib = json.loads(cal_p.read_text(encoding="utf-8"))
     rows = []
     with open(log, encoding="utf-8") as f:
@@ -47,26 +46,26 @@ def export_queue(home: Path, log: Path, model: str, out: Path, op: str = "fpr05"
             if line.strip():
                 r = json.loads(line)
                 rows.append({"id": str(r.get("id") or f"log-{_hid(r['text'])}"), "text": r["text"], "lang": r.get("lang"),
-                             "scores": r.get("scores"), "choice": r.get("choice")})
-    todo = [r for r in rows if not r.get("scores")]
+                             "score": r.get("score"), "choice": r.get("choice")})
+    from .detector import detect_lang
+
+    for r in rows:
+        r["lang"] = r["lang"] or detect_lang(r["text"])
+    todo = [r for r in rows if r.get("score") is None]
     if todo:
         from .bench import load_config
-        from .detector import LayaDetector, detect_lang
+        from .detector import LayaDetector
 
         cfg = load_config(home)
         det = LayaDetector(model=ref.mlx_source() if backend == "mlx" else str(ref.local_dir()), device=device,
-                           question_set=(home / cfg["question_set"]).resolve(), backend=backend)
-        for r in todo:
-            r["lang"] = r["lang"] or detect_lang(r["text"])
-        outs = det.predict([r["text"] for r in todo], [r["lang"] for r in todo])
-        for r, o in zip(todo, outs):
-            r["scores"], r["choice"] = o["scores"], o["categories"]
+                           question=(home / cfg["question"]).resolve(), backend=backend)
+        for r, o in zip(todo, det.predict([r["text"] for r in todo])):
+            r["score"], r["choice"] = o["score"], o["choice"]
     t = calib["thresholds"][op]
     for r in rows:
-        r["score"] = E.score_of(r, calib["score_variant"])
+        r["score"] = float(r["score"])
         r["block"] = int(r["score"] >= t)
-        c = E.choice_of(r, calib["category_variant"])
-        r["choice_name"] = T.CATEGORY_KO.get(c.get("choice"), c.get("choice") or "")
+        r["choice_name"] = T.CATEGORY_KO.get(r.get("choice"), r.get("choice") or "")
     groups = {"uncertain": sorted((r for r in rows if abs(r["score"] - t) <= band), key=lambda r: abs(r["score"] - t)),
               "blocked": sorted((r for r in rows if r["block"] and abs(r["score"] - t) > band), key=lambda r: _hid(r["id"])),
               "passed": sorted((r for r in rows if not r["block"] and abs(r["score"] - t) > band), key=lambda r: _hid(r["id"]))}
@@ -82,7 +81,7 @@ def export_queue(home: Path, log: Path, model: str, out: Path, op: str = "fpr05"
         w = csv.writer(f)
         w.writerow(COLUMNS)
         for reason, r in picked:
-            w.writerow([r["id"], r["lang"], reason, ref.name, round(r["score"], 4), "차단" if r["block"] else "통과", r["choice_name"],
+            w.writerow([r["id"], r["lang"], reason, ref.id, round(r["score"], 4), "차단" if r["block"] else "통과", r["choice_name"],
                         r["text"], "", "", "", "", "", ""])
     from collections import Counter
 

@@ -1,4 +1,4 @@
-"""모델 다운로드 없이 도는 단위 테스트 (지표 · 데이터 생성 · 질문 문구 · 학습 행)."""
+"""모델 다운로드 없이 도는 단위 테스트 (지표 · 데이터 생성 · 판정 질문 · 학습 행)."""
 import math
 import re
 from pathlib import Path
@@ -7,14 +7,14 @@ from piiguard_laya import metrics as M
 from piiguard_laya import taxonomy as T
 from piiguard_laya.data import perturb, synth
 from piiguard_laya.data.prepare import split_of
-from piiguard_laya.detector import QuestionSet, detect_lang, parse_answers
+from piiguard_laya.detector import Question, detect_lang, parse_answer
 from piiguard_laya.surrogate import surrogate
 from piiguard_laya.training import make_row
 
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / "configs").exists():  # 컨테이너: /opt/piiguard-laya/tests -> /workspace/configs
     ROOT = Path("/workspace")
-QS = ROOT / "configs/questions/pii_v1.yaml"
+QS = ROOT / "configs/question.yaml"
 
 
 # ---------------------------------------------------------------- metrics
@@ -117,25 +117,21 @@ def test_taxonomy_priority():
 
 
 # ---------------------------------------------------------------- detector
-def test_question_set_and_parse():
-    qs = QuestionSet.load(QS)
-    assert set(qs.variants) == {"c_en", "c_ko", "n_en", "n_ko"}
-    assert qs.head_max_len == 512
-    for v in qs.choice_variants():
-        spec = qs.variants[v]
-        keys = list(spec["question"]["criteria"])
-        canon = [(spec.get("key_map") or {}).get(k, k) for k in keys]
-        assert sorted(canon) == sorted(T.CATEGORIES)
-    ans = {
-        "c_en": {"choice": "financial", "probabilities": {c: (0.9 if c == "financial" else 0.1 / 7) for c in T.CATEGORIES}},
-        "c_ko": {"choice": "없음", "probabilities": {k: (0.8 if k == "없음" else 0.2 / 7) for k in qs.variants["c_ko"]["question"]["criteria"]}},
-        "n_en": {"noul": 0.7}, "n_ko": {"noul": 0.2},
-    }
-    out = parse_answers(ans, qs)
-    assert out["categories"]["c_ko"]["choice"] == "none"
-    assert math.isclose(out["scores"]["c_ko"], 0.2, abs_tol=1e-6)
-    assert out["categories"]["c_en"]["choice"] == "financial"
-    assert out["scores"]["n_en"] == 0.7
+def test_question_and_parse(tmp_path):
+    q = Question.load(QS)
+    assert q.id == "pii_type" and q.head_max_len == 512 and list(q.questions()) == ["pii_type"]
+    assert sorted(q.definition["criteria"]) == sorted(T.CATEGORIES)
+    ans = {"pii_type": {"choice": "financial", "probabilities": {c: (0.9 if c == "financial" else 0.1 / 7) for c in T.CATEGORIES}}}
+    out = parse_answer(ans, q)
+    assert out["choice"] == "financial" and math.isclose(out["score"], 1 - 0.1 / 7, abs_tol=1e-6)
+    assert math.isclose(sum(out["probabilities"].values()), 1.0, abs_tol=1e-3)
+    bad = tmp_path / "q.yaml"  # 선택지가 유형 키와 다르면 거부
+    bad.write_text("id: x\nversion: 1\nquestion: {type: choice, instructions: hi, criteria: {yes: a, no: b}}\n", encoding="utf-8")
+    try:
+        Question.load(bad)
+        raise AssertionError("ValueError 가 나야 함")
+    except ValueError:
+        pass
 
 
 def test_detect_lang():
@@ -153,14 +149,17 @@ def test_surrogate_replaces_values():
     assert r["text"].startswith("INSERT INTO c VALUES ('") and r["replaced"] == 2
 
 
-def test_make_row_choice_keymap_and_soft():
-    qs = QuestionSet.load(QS)
-    row = make_row("x", True, ["contact", "identity"], qs, list(qs.variants))
-    assert row["expected"]["c_en"] == "contact" and row["expected"]["c_ko"] == "연락처"
-    assert row["expected"]["n_en"] is True
-    soft = make_row("x", False, [], qs, list(qs.variants), confidence=0.8)
-    assert math.isclose(soft["gold"]["n_ko"]["probabilities"]["true"], 0.2)
-    assert soft["gold"]["c_ko"]["probabilities"] == {"없음": 1.0}
+def test_make_row_targets():
+    q = Question.load(QS)
+    row = make_row("x", True, ["contact", "identity"], q)
+    assert row["expected"] == {"pii_type": "contact"} and list(row["questions"]) == ["pii_type"]
+    assert make_row("x", False, [], q)["expected"] == {"pii_type": "none"}
+    soft = make_row("x", True, ["financial"], q, confidence=0.8)["gold"]["pii_type"]["probabilities"]
+    assert math.isclose(soft["financial"], 0.8) and math.isclose(soft["none"], 0.2)
+    unknown = make_row("x", True, [], q)["gold"]["pii_type"]["probabilities"]  # 유형을 모르는 개인정보
+    assert unknown["none"] == 0 and math.isclose(sum(unknown.values()), 1.0)
+    neg = make_row("x", False, [], q, confidence=0.9)["gold"]["pii_type"]["probabilities"]
+    assert math.isclose(neg["none"], 0.9) and math.isclose(sum(neg.values()), 1.0)
 
 
 def test_locate_forms():

@@ -43,7 +43,6 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     TOKENIZERS_PARALLELISM=false \
     USE_TF=0 USE_TORCH=1 \
-    HF_HOME=/hf \
     PIIGUARD_LAYA_HOME=/workspace \
     PIIGUARD_LAYA_TORCH_INDEX=${TORCH_INDEX}
 
@@ -52,8 +51,8 @@ COPY --from=build /opt/venv /opt/venv
 WORKDIR /workspace
 COPY --chown=app:app configs/ /workspace/configs/
 COPY --chown=app:app tests/ /opt/piiguard-laya/tests/
-RUN mkdir -p /workspace/datasets /workspace/training /workspace/models/trained /workspace/reports /workspace/feedback /hf \
-    && chown -R app:app /workspace /hf
+RUN mkdir -p /workspace/datasets /workspace/training /workspace/models/base /workspace/models/trained /workspace/reports /workspace/feedback \
+    && chown -R app:app /workspace
 USER app
 
 ENTRYPOINT ["piiguard-laya"]

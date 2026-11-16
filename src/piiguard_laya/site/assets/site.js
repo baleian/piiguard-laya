@@ -66,7 +66,7 @@
       if (!P._loading[name]) {
         P._loading[name] = new Promise((res, rej) => {
           const s = document.createElement('script');
-          s.src = '_site/data/items/' + encodeURIComponent(name) + '.js';
+          s.src = '_site/data/items/' + encodeURIComponent(name.replace(/\//g, '--')) + '.js';  // 모델 id 의 / → --
           s.onload = () => res(window.PIIG_ITEMS[name]);
           s.onerror = () => rej(new Error('예측 데이터를 읽지 못했습니다: ' + name));
           document.head.append(s);
@@ -75,11 +75,16 @@
       return P._loading[name];
     },
     rowsOf(pack) { const c = pack.cols; return pack.rows.map((r) => Object.fromEntries(c.map((k, i) => [k, r[i]]))); },
-    kindLabel(m) {
-      const k = m && m.model && m.model.kind;
-      return k === 'trained' ? '직접 학습' : k === 'hf' ? 'Hugging Face' : '';
+    // 모델 종류: models/base/ 에 있으면 Base 모델, models/trained/ 에 있으면 학습된 모델
+    kindName: (k) => (S && S.kind_labels && S.kind_labels[k]) || '',
+    kindLabel(m) { return P.kindName(m && m.model && m.model.kind); },
+    // Base 모델의 출처 (Hugging Face 저장소 · 커밋)
+    sourceText(src) {
+      if (!src || !src.repo) return '';
+      return `Hugging Face ${src.repo}${src.subfolder ? ' / ' + src.subfolder : ''}${src.commit ? ' @ ' + String(src.commit).slice(0, 10) : ''}`;
     },
-    baseOf(name) { const c = S.models[name] && S.models[name].model.card; return c && c.base ? c.base.name : null; },
+    // 학습된 모델의 기준 모델 id (모델 카드)
+    baseOf(name) { const c = S.models[name] && S.models[name].model.card; return c && c.base ? c.base.id || c.base.name : null; },
     empty(container, msg) { container.replaceChildren(P.el('div', 'empty', msg)); },
     init(active) {
       document.querySelectorAll('.nav a.link').forEach((a) => a.classList.toggle('on', a.dataset.page === active));
@@ -87,7 +92,7 @@
       if (g) g.textContent = S ? '생성 ' + P.date(S.generated_at) : '';
       if (!S) {
         const w = document.querySelector('.wrap');
-        if (w) P.empty(w, '데이터가 없습니다. `make bench MODEL=laya-multilingual` 로 평가를 실행하면 이 페이지가 채워집니다.');
+        if (w) P.empty(w, '데이터가 없습니다. `make bench MODEL=base/laya-multilingual` 로 평가를 실행하면 이 페이지가 채워집니다.');
         return false;
       }
       return true;

@@ -41,7 +41,7 @@ datasets/<이름>/
 
 `split` 이 없으면 모든 행이 `test` 다. 그러면 이 데이터셋은 임계값 결정에 영향을 주지 않고, 다른 데이터셋의 calib 행으로 정한 임계값으로 평가된다. 내 데이터에 맞춘 임계값이 필요하면 일부 행을 `calib` 으로 둔다(보통 20~40%).
 
-`make bench` 는 실행할 때마다 calib 행이 바뀌었는지 확인한다. calib 행이 있는 데이터셋을 추가 · 수정 · 삭제했으면 임계값을 다시 정하고, 이미 평가한 데이터셋의 지표도 새 임계값으로 다시 계산한다(모델을 다시 돌리지 않고 저장된 점수로 계산). 데이터셋 폴더를 지워도 `reports/` 의 그 데이터셋 결과는 남는다. 지우려면 `make clean-reports MODEL=<이름>` 후 다시 평가한다.
+`make bench` 는 실행할 때마다 calib 행이 바뀌었는지 확인한다. calib 행이 있는 데이터셋을 추가 · 수정 · 삭제했으면 임계값을 다시 정하고, 이미 평가한 데이터셋의 지표도 새 임계값으로 다시 계산한다(모델을 다시 돌리지 않고 저장된 점수로 계산). 데이터셋 폴더를 지워도 `reports/` 의 그 데이터셋 결과는 남는다. 지우려면 `make clean-reports MODEL=<모델 id>` 후 다시 평가한다.
 
 ## 학습용 데이터셋 전용 필드
 
@@ -87,5 +87,5 @@ mkdir -p datasets/my_dataset
 cp my_rows.jsonl datasets/my_dataset/data.jsonl
 make datasets                          # 행 수와 calib/test 구성을 확인
 make bench DATASET=my_dataset          # 이미 평가한 다른 데이터셋은 그대로 두고 이것만 평가
-make bench MODEL=r1 DATASET=my_dataset
+make bench MODEL=trained/r1 DATASET=my_dataset
 ```

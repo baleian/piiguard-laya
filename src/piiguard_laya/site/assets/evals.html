@@ -66,7 +66,7 @@
 
   <section class="sec">
     <h2>실제 사례</h2>
-    <p class="muted">평가 문장 가운데 대표 사례를 데이터셋별로 고르게 뽑았습니다. '정답'은 데이터셋 라벨, 점수는 모델이 낸 '개인정보 포함' 확률, 판정은 그 점수를 해당 기준의 임계값과 비교한 차단 여부, '고른 유형'은 유형 분류 질문의 답과 확률입니다. 모든 문장은 <a id="pred-link" href="predictions.html">예측 결과</a> 에서 볼 수 있습니다.</p>
+    <p class="muted">평가 문장 가운데 대표 사례를 데이터셋별로 고르게 뽑았습니다. '정답'은 데이터셋 라벨, 점수는 모델이 낸 '개인정보 포함' 확률, 판정은 그 점수를 해당 기준의 임계값과 비교한 차단 여부, '고른 유형'은 모델이 고른 개인정보 유형과 그 확률입니다. 모든 문장은 <a id="pred-link" href="predictions.html">예측 결과</a> 에서 볼 수 있습니다.</p>
     <div id="examples" class="sec"></div>
   </section>
 
@@ -83,11 +83,8 @@
   </section>
 
   <details class="box">
-    <summary>전문가용 상세 (신뢰구간, 혼동행렬, 질문 문구 민감도)</summary>
+    <summary>전문가용 상세 (신뢰구간, 혼동행렬, 회귀 검사 전체)</summary>
     <div class="sec"><h3>운영 기준별 전체 지표</h3><div class="tw"><table id="detail"></table></div></div>
-    <div class="sec" style="margin-top:18px"><h3>질문 문구 민감도</h3>
-      <p class="small muted">미리 정해 둔 질문 문구와 그 평균(ens) 중 보정용 문장의 AUROC 가 가장 높은 것을 점수로 씁니다.</p>
-      <div class="tw"><table id="wording"></table></div></div>
     <div class="sec" style="margin-top:18px"><h3>회귀 검사 전체</h3><div class="tw"><table id="gate-all"></table></div></div>
   </details>
 

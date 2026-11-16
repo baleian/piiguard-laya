@@ -3,7 +3,7 @@
   if (!P.init('dashboard')) return;
   const S = P.S, el = P.el, td = P.td;
   const names = P.models().sort((a, b) => String(S.models[b].model.benched_at || '').localeCompare(String(S.models[a].model.benched_at || '')));
-  if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=laya-multilingual'); return; }
+  if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=base/laya-multilingual'); return; }
   const OPS = ['recall95', 'fpr05', 'default'].filter((o) => names.some((n) => S.models[n].calibration.thresholds[o] != null));
   document.getElementById('ops-desc').textContent = '운영 기준: ' + OPS.map((o) => `${P.opName(o)} — ${P.opDesc(o)}`).join(' · ');
 
@@ -28,7 +28,7 @@
     const m = S.models[n], A = m.pooled.ALL;
     if (f === 'auroc') return A && A.threshold_free.auroc;
     if (f === 'top1') return m.classification && m.classification.top1_accuracy;
-    if (f === 'p50') { const l = m.latency && m.latency.results && m.latency.results[0]; return l ? l.p50_ms : null; }
+    if (f === 'p50') return m.latency ? m.latency.p50_ms : null;
     return A && A.ops[o] ? A.ops[o][f] : null;
   };
   const t = document.getElementById('main');

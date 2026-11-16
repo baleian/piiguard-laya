@@ -3,24 +3,19 @@
   if (!P.init('predictions')) return;
   const S = P.S, el = P.el, td = P.td, $ = (id) => document.getElementById(id);
   const names = P.models().sort((a, b) => String(S.models[b].model.benched_at || '').localeCompare(String(S.models[a].model.benched_at || '')));
-  if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=laya-multilingual'); return; }
+  if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=base/laya-multilingual'); return; }
   const KIND = { FN: '미검출', FP: '오탐', OK: '맞힘' };
   const kindOf = (label, block) => (label && !block ? 'FN' : !label && block ? 'FP' : 'OK');
-  const VDESC = { ens: ' — 질문 문구 4개(유형 분류 2개, 예/아니오 2개) 점수의 평균. 유형 분류 질문의 점수는 1 − P(개인정보 없음), 예/아니오 질문은 P(예)',
-    c_en: ' — 영어 유형 분류 질문의 1 − P(개인정보 없음)', c_ko: ' — 한국어 유형 분류 질문의 1 − P(개인정보 없음)',
-    n_en: ' — 영어 예/아니오 질문의 P(예)', n_ko: ' — 한국어 예/아니오 질문의 P(예)' };
   const h = P.hash();
   let m = names.includes(h.model) ? h.model : names[0];
   let items = [], cache = [], shown = 100, token = 0;
-  P.options($('m'), names.map((n) => [n, `${n} · ${P.kindLabel(S.models[n])}`]), m);
+  P.options($('m'), names.map((n) => [n, n]), m);
 
   function setupModel() {
     const M = S.models[m];
     P.options($('op'), P.ops(M).map((o) => [o, `${P.opName(o)} · 임계값 ${P.thr(M.calibration.thresholds[o])}`]), h.op && M.calibration.thresholds[h.op] != null ? h.op : 'fpr05');
     const ds = Object.keys(M.datasets);
     P.options($('ds'), [['', '전체'], ...ds.map((d) => [d, `${M.datasets[d].title || d} (${P.int(M.datasets[d].n)})`])], ds.includes(h.dataset) ? h.dataset : '');
-    $('score-desc').textContent = VDESC[M.calibration.score_variant] || '';
-    $('cat-desc').textContent = ` (문구 ${M.calibration.category_variant})`;
     const my = ++token;
     $('rows').replaceChildren(); $('count').textContent = '불러오는 중…';
     P.loadItems(m).then((pack) => {

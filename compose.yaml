@@ -3,11 +3,11 @@
 #   cpu   : linux/amd64 · linux/arm64 (Apple Silicon 의 Docker 도 여기 — 컨테이너에선 Metal GPU 사용 불가)
 #   cuda  : NVIDIA GPU (amd64, arm64/DGX Spark). torch cu130 → RTX 50xx(Blackwell) 포함
 #
-#   docker compose run --rm cpu  bench --model laya-multilingual --limit 200
-#   docker compose --profile cuda run --rm cuda bench --model laya-multilingual
+#   docker compose run --rm cpu  bench --model base/laya-multilingual --limit 200
+#   docker compose --profile cuda run --rm cuda bench --model trained/r1
 #
-# Hugging Face 모델은 호스트의 HF_HOME(기본 ~/.cache/huggingface)을 그대로 쓴다.
-# 오프라인 실행: HF_HUB_OFFLINE=1 로 두면 이미 받아 둔 모델만 쓴다 (docs/PLATFORMS.md).
+# 모델은 ./models (models/base/ = Base 모델, models/trained/ = 학습된 모델) 에 있다. Base 모델이 없으면 처음 쓸 때 Hugging Face 에서 받는다.
+# 오프라인 실행: HF_HUB_OFFLINE=1 로 두면 받지 않고 models/ 에 있는 모델만 쓴다 (docs/PLATFORMS.md).
 
 x-common: &common
   user: "${PIIGUARD_LAYA_UID:-1000}:${PIIGUARD_LAYA_GID:-1000}"   # make 가 현재 사용자 id 로 채운다
@@ -20,7 +20,6 @@ x-common: &common
     - ./models:/workspace/models
     - ./reports:/workspace/reports
     - ./feedback:/workspace/feedback
-    - ${PIIGUARD_LAYA_HF_HOME:-~/.cache/huggingface}:/hf
   # environment 는 서비스별로 정의 (YAML merge 는 얕게 합쳐져 서비스 쪽이 통째로 덮어쓴다)
 
 services:
@@ -33,10 +32,9 @@ services:
       args: {TORCH_INDEX: cpu, TORCH_VERSION: "${TORCH_VERSION:-2.14.0}"}
     environment:
       HOME: /tmp
-      HF_HOME: /hf
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       HF_TOKEN: "${HF_TOKEN:-}"
-      LAYA_REVISION: "${LAYA_REVISION:-}"        # Hugging Face 기본 모델 리비전 고정 (예: e333cb7c823cd1787276228260f56d02fbf5180b)
+      LAYA_REVISION: "${LAYA_REVISION:-}"        # Base 모델을 처음 받을 때 리비전 고정 (예: e333cb7c823cd1787276228260f56d02fbf5180b)
       PIIGUARD_LAYA_DEVICE: cpu
       PIIGUARD_LAYA_BATCH: "${PIIGUARD_LAYA_BATCH:-16}"
       OMP_NUM_THREADS: "${OMP_NUM_THREADS:-8}"   # 물리 코어 수 이하로
@@ -51,7 +49,6 @@ services:
       args: {TORCH_INDEX: "${TORCH_INDEX:-cu130}", TORCH_VERSION: "${TORCH_VERSION:-2.14.0}"}
     environment:
       HOME: /tmp
-      HF_HOME: /hf
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
       HF_TOKEN: "${HF_TOKEN:-}"
       LAYA_REVISION: "${LAYA_REVISION:-}"

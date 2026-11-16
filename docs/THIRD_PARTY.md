@@ -8,21 +8,19 @@
 | [laya-mlx](https://github.com/mizorewww/laya-mlx) 0.6.0 | Apache-2.0 | Apple Silicon MLX 추론 (맥 네이티브) |
 | [vegaml](https://github.com/NandhaKishorM/vegaml) | Apache-2.0 | laya 의 의존성 |
 | PyTorch | BSD-3-Clause | 연산 런타임 |
-| transformers, huggingface_hub | Apache-2.0 | 토크나이저, 모델 다운로드 |
+| transformers, huggingface_hub | Apache-2.0 | 토크나이저, Base 모델 다운로드 |
 | NumPy / PyArrow / PyYAML / pytest | BSD-3-Clause / Apache-2.0 / MIT / MIT | 수치 연산, parquet 읽기, 설정, 테스트 |
 
 Docker 이미지에는 위 패키지가 함께 설치된다. 각 패키지의 라이선스 파일은 이미지 안의 `site-packages/*.dist-info/` 에 들어 있다.
 
-## 2. 모델 체크포인트 (실행 시 다운로드)
+## 2. 모델 체크포인트 (실행 시 `models/base/` 에 다운로드)
 
 | 체크포인트 | 라이선스 | 비고 |
 |---|---|---|
-| `convaiinnovations/laya` (`multilingual` 하위 폴더) | Apache-2.0 | 별칭 `laya-multilingual`. `LAYA_REVISION` 으로 리비전 고정 가능 |
-| `convaiinnovations/laya` (최상위, 영어) | Apache-2.0 | 별칭 `laya-english` |
-| `aac6fef/laya-multilingual-mlx` | Apache-2.0 | `laya-multilingual` 의 MLX 변환본 (맥 네이티브) |
-| `aac6fef/laya-mlx` | Apache-2.0 | `laya-english` 의 MLX 변환본 (맥 네이티브) |
+| `convaiinnovations/laya` (`multilingual` 하위 폴더) | Apache-2.0 | `base/laya-multilingual` → `models/base/laya-multilingual/`. `LAYA_REVISION` 으로 리비전 고정 가능 |
+| `convaiinnovations/laya` (최상위, 영어) | Apache-2.0 | `base/laya-english` → `models/base/laya-english/` (지정했을 때만) |
 
-`make train` 으로 만든 모델은 위 체크포인트의 파생물이므로 Apache-2.0 이 적용된다.
+받은 저장소 · 커밋 · 라이선스는 `models/base/<이름>/MODEL_CARD.json` 에 남는다. Apple Silicon 의 MLX 변환본(`<모델 폴더>/mlx/`)은 laya-mlx 로 로컬에서 만든다. `make train` 으로 만든 모델(`models/trained/`)은 위 체크포인트의 파생물이므로 Apache-2.0 이 적용된다.
 
 ## 3. 데이터셋 (실행 시 다운로드)
 
@@ -45,7 +43,7 @@ KDPII 로 만든 결과나 가공 데이터를 배포할 때는 아래와 같이
 
 | 자료 | 참고한 내용 |
 |---|---|
-| [hsr87/korean-guardrail-bench](https://github.com/hsr87/korean-guardrail-bench) | 사전 등록 질문 문구, calib 전용 임계값, Wilson 신뢰구간, 한국어 표면 변형 평가 |
+| [hsr87/korean-guardrail-bench](https://github.com/hsr87/korean-guardrail-bench) | calib 전용 임계값, Wilson 신뢰구간, 한국어 표면 변형 평가 |
 | [guardrails-ai/guardrails_pii](https://github.com/guardrails-ai/guardrails_pii) | 엔터티별 TPR/FPR·지연시간 보고 형식 |
 | [skan0779/korean-guardrail-dataset](https://github.com/skan0779/korean-guardrail-dataset) | 한국어 가드레일 데이터셋 목록 |
 | [laya.tools — Run Laya locally](https://laya.tools/guides/run-laya-locally) | 플랫폼별 실행 방식 |

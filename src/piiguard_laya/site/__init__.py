@@ -2,7 +2,7 @@
 
     reports/index.html         홈: 모델·데이터셋 목록, 사용법
     reports/dashboard.html     모든 모델의 주요 지표 요약
-    reports/evals.html         모델 하나를 기준 모델과 비교 (모델 카드의 기준 모델이 기본값)
+    reports/evals.html         모델 하나의 결과, 다른 모델(기본: 학습된 모델이면 그 기준 모델)과 비교
     reports/predictions.html   문장별 예측 결과 조회 (원문 · 정답 · 모델 점수 · 판정 · 모델이 고른 유형)
     reports/_site/             공용 스타일·스크립트와 데이터 파일
 
@@ -20,7 +20,6 @@ from typing import Any
 import yaml
 
 from .. import datasets as D
-from .. import evaluate as E
 from .. import paths, registry
 from .. import taxonomy as T
 from ..summary import compare, list_reports, model_summary
@@ -62,28 +61,23 @@ def build(home: Path) -> Path:
     for n in names:
         s, it = model_summary(home, n, with_items=True)
         summaries[n], items[n] = s, it
-        cv, sv = s["calibration"]["category_variant"], s["calibration"]["score_variant"]
         rows = []
         for d, xs in it.items():
             for x in xs:
-                c = E.choice_of(x, cv)
-                prob = (c.get("probabilities") or {}).get(c.get("choice"))
+                c = x.get("choice")
                 rows.append([x["id"], d, x["lang"], x.get("variant", "original"), x["label"], x["categories"], x["text"],
-                             round(E.score_of(x, sv), 4), c.get("choice"), prob])
-        (data / "items" / f"{n}.js").write_text(
+                             round(x["score"], 4), c, (x.get("probabilities") or {}).get(c)])
+        (data / "items" / f"{n.replace('/', '--')}.js").write_text(  # 모델 id 의 / → -- (파일 이름)
             "window.PIIG_ITEMS = window.PIIG_ITEMS || {};\n" + f"window.PIIG_ITEMS[{json.dumps(n)}] = "
             + json.dumps({"cols": ["id", "dataset", "lang", "variant", "label", "categories", "text", "score", "choice", "choice_prob"],
                           "rows": rows}, ensure_ascii=False, separators=(",", ":")) + ";\n", encoding="utf-8")
     pairs = {a: {b: compare(summaries[a], summaries[b], rules, items[a], items[b]) for b in names if b != a} for a in names}
-    trained = registry.list_trained(home)
-    for t in trained:
-        card = json.loads((Path(t["path"]) / "MODEL_CARD.json").read_text(encoding="utf-8")) if (Path(t["path"]) / "MODEL_CARD.json").exists() else {}
-        t["card"] = registry.card_summary(card) if card else None
-        t["evaluated"] = t["name"] in summaries
+    local = registry.list_local(home)  # models/base/ · models/trained/ 에 있는 모델 (평가 전인 것 포함)
+    for x in local:
+        x["evaluated"] = x["id"] in summaries
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "models": summaries, "compare": pairs, "trained": trained,
-        "aliases": [{"name": k, **{kk: vv for kk, vv in v.items() if kk != "mlx"}} for k, v in registry.ALIASES.items()],
+        "models": summaries, "compare": pairs, "local": local, "kind_labels": registry.KIND_LABEL,
         "datasets": [d.describe() for d in D.list_eval(home)],
         "training": [d.describe() for d in D.list_train(home)],
         "labels": {"categories": T.CATEGORY_KO, "category_order": T.CATEGORIES, "variants": VARIANTS, "ops": OPS},

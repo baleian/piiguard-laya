@@ -1,15 +1,15 @@
-"""모델 평가 (`make bench MODEL=... [DATASET=...]`).
+"""모델 평가 (`make bench MODEL=base/<이름>|trained/<이름> [DATASET=...]`).
 
-    reports/<모델>/
-        model.json                  모델 정보 (출처, 모델 카드 요약, 실행 환경)
-        calibration.json            모델 임계값과 선택된 질문 문구 (calib 행에서 결정)
+    reports/<모델 id>/              모델 id = base/<이름> 또는 trained/<이름> (models/ 아래 경로와 같다)
+        model.json                  모델 정보 (종류·경로, 모델 카드 요약, 실행 환경)
+        calibration.json            모델 임계값 (calib 행에서 결정)
         latency.json                요청 1건 처리 시간
         _calibration/<데이터셋>.jsonl  보정에 쓴 calib 행의 원시 예측
         <데이터셋>/predictions.jsonl  test 행마다 원문 · 정답 · 모델 점수 · 모델이 고른 유형
         <데이터셋>/metrics.json       지표 요약
 
 순서
- 1. 모델 확인 (HF 모델은 HF_HOME 에 내려받음, 있으면 건너뜀)
+ 1. 모델 확인 (Base 모델이 models/base/ 에 없으면 Hugging Face 에서 받음)
  2. 보정: 평가용 데이터셋의 calib 행으로 임계값을 정한다. 이미 했고 데이터가 그대로면 다시 하지 않는다.
  3. 평가: 지정한 데이터셋(없으면 전부)의 test 행을 판정한다. 이미 평가했고 데이터·모델이 그대로면 건너뛴다.
  4. 요약: 이 모델의 모든 데이터셋 지표를 현재 임계값으로 다시 계산한다.
@@ -32,7 +32,7 @@ import yaml
 from . import datasets as D
 from . import evaluate as E
 from . import paths, registry
-from .detector import LayaDetector, QuestionSet
+from .detector import LayaDetector, Question
 
 
 def now() -> str:
@@ -78,7 +78,8 @@ def _item(r: Dict, o: Dict) -> Dict:
     for k in ("group", "parent_id", "source"):
         if r.get(k):
             it[k] = r[k]
-    it.update({"scores": o["scores"], "choice": o["categories"], "truncated": o.get("truncated", False)})
+    it.update({"score": o["score"], "choice": o["choice"], "probabilities": o["probabilities"],
+               "truncated": o.get("truncated", False)})
     return it
 
 
@@ -94,7 +95,7 @@ class _Lazy:
         return self.det
 
     def infer(self, rows: List[Dict]) -> List[Dict]:
-        outs = self().predict([r["text"] for r in rows], [r["lang"] for r in rows])
+        outs = self().predict([r["text"] for r in rows])
         return [_item(r, o) for r, o in zip(rows, outs)]
 
 
@@ -119,25 +120,21 @@ def run(home: Path, model: str, datasets: Optional[List[str]] = None, limit: Opt
         build_site: bool = True) -> Path:
     cfg = load_config(home)
     ref = registry.resolve(model, home)
-    qs_path = (home / cfg["question_set"]).resolve()
-    qs = QuestionSet.load(qs_path)
-    qs_sha = qs.rendered_sha256()
-    if backend == "mlx":
-        source = ref.mlx_source()
-        fp = f"mlx:{source}:{ref.revision or ''}" if ref.kind == "hf" else "mlx:" + ref.fingerprint()
-    else:
-        source = str(ref.local_dir())
-        fp = ref.fingerprint()
+    q_path = (home / cfg["question"]).resolve()
+    q = Question.load(q_path)
+    q_sha = q.rendered_sha256()
+    source = ref.mlx_source() if backend == "mlx" else str(ref.local_dir())
+    fp = ("mlx:" if backend == "mlx" else "") + ref.fingerprint()
 
-    out = paths.reports_dir(home) / ref.name
+    out = paths.reports_dir(home) / ref.id
     mj = out / "model.json"
     if mj.exists():
         old = json.loads(mj.read_text(encoding="utf-8"))
-        if old.get("fingerprint") != fp or old.get("question_set", {}).get("sha256") != qs_sha:
-            print(f"[bench] {ref.name}: 모델이나 질문 문구가 바뀌어 이전 결과(reports/{ref.name})를 지우고 다시 평가합니다.")
+        if old.get("fingerprint") != fp or (old.get("question") or {}).get("sha256") != q_sha:
+            print(f"[bench] {ref.id}: 모델이나 판정 질문이 바뀌어 이전 결과(reports/{ref.id}/)를 지우고 다시 평가합니다.")
             shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
-    lazy = _Lazy(model=source, device=device, question_set=qs_path, batch_size=batch_size or cfg.get("batch_size", 32),
+    lazy = _Lazy(model=source, device=device, question=q_path, batch_size=batch_size or cfg.get("batch_size", 32),
                  backend=backend)
 
     # ---------------- 2. 보정 (calib 행)
@@ -174,10 +171,10 @@ def run(home: Path, model: str, datasets: Optional[List[str]] = None, limit: Opt
         raise SystemExit("calib 행이 있는 평가용 데이터셋이 없어 임계값을 정할 수 없습니다.")
     cal_p = out / "calibration.json"
     if changed or not cal_p.exists():
-        calib = E.calibrate(cal_items, qs, cfg["operating_points"])
+        calib = E.calibrate(cal_items, cfg["operating_points"])
         calib.update({"datasets": cal_used, "at": now()})
         cal_p.write_text(json.dumps(calib, ensure_ascii=False, indent=1), encoding="utf-8")
-        print(f"[bench] 임계값: {calib['thresholds']} (점수 문구 {calib['score_variant']})")
+        print(f"[bench] 임계값: {calib['thresholds']}")
     calib = json.loads(cal_p.read_text(encoding="utf-8"))
 
     # ---------------- 3. 평가 (test 행)
@@ -202,9 +199,8 @@ def run(home: Path, model: str, datasets: Optional[List[str]] = None, limit: Opt
         items = read_jsonl(dd / "predictions.jsonl")
         meta = json.loads((dd / "meta.json").read_text(encoding="utf-8")) if (dd / "meta.json").exists() else {}
         m = E.summarize(items, calib)
-        m.update({"dataset": dd.name, "model": ref.name, "title": meta.get("dataset", {}).get("title", dd.name),
+        m.update({"dataset": dd.name, "model": ref.id, "title": meta.get("dataset", {}).get("title", dd.name),
                   "description": meta.get("dataset", {}).get("description", ""), "evaluated_at": meta.get("at"),
-                  "score_variant": calib["score_variant"], "category_variant": calib["category_variant"],
                   "thresholds": calib["thresholds"], "limit": meta.get("key", {}).get("limit")})
         (dd / "metrics.json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -213,23 +209,22 @@ def run(home: Path, model: str, datasets: Optional[List[str]] = None, limit: Opt
     if lazy.det is not None or not lat_p.exists():
         texts = []
         for p in sorted(out.glob("*/predictions.jsonl")):
-            texts += [(r["text"], r["lang"]) for r in read_jsonl(p)]
+            texts += [r["text"] for r in read_jsonl(p)]
         random.Random(0).shuffle(texts)
         texts = texts[:cfg.get("latency_requests", 200)]
         if texts:
-            only = sorted(qs.variants) if calib["score_variant"] == E.ENS else sorted({calib["score_variant"], calib["category_variant"]})
             print(f"[bench] 지연시간 측정: 요청 {len(texts)}건")
-            lat = lazy().latency([t for t, _ in texts], [l for _, l in texts], only=only)
+            lat = lazy().latency(texts)
             info = lazy().info()
-            lat_p.write_text(json.dumps({"at": now(), "device": info.get("device"), "gpu": info.get("gpu"),
-                                         "results": list(lat.values())}, ensure_ascii=False, indent=1), encoding="utf-8")
+            lat_p.write_text(json.dumps({"at": now(), "device": info.get("device"), "gpu": info.get("gpu"), **lat},
+                                        ensure_ascii=False, indent=1), encoding="utf-8")
 
     info = lazy.det.info() if lazy.det else (json.loads(mj.read_text(encoding="utf-8")).get("runtime") if mj.exists() else {})
     mj.write_text(json.dumps({**ref.describe(), "fingerprint": fp, "backend": backend, "benched_at": now(),
-                              "question_set": {"path": str(cfg["question_set"]), "version": qs.version, "sha256": qs_sha},
+                              "question": q.describe(str(cfg["question"])),
                               "runtime": info, "host": {"platform": platform.platform(), "python": platform.python_version()}},
                              ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-    print(f"[bench] 완료 → reports/{ref.name}/")
+    print(f"[bench] 완료 → reports/{ref.id}/")
     if build_site:
         from . import site
 

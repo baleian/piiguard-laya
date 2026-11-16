@@ -1,4 +1,4 @@
-"""새 폴더 구조(datasets/ · training/ · models/trained/ · reports/)와 그 위의 평가·비교·페이지 생성 테스트. 모델 다운로드 없음."""
+"""폴더 구조(datasets/ · training/ · models/base/ · models/trained/ · reports/)와 그 위의 평가·비교·페이지 생성 테스트. 모델 다운로드 없음."""
 import json
 import random
 import shutil
@@ -10,12 +10,10 @@ import yaml
 from piiguard_laya import datasets as D
 from piiguard_laya import evaluate as E
 from piiguard_laya import registry, review, site, summary
-from piiguard_laya.detector import QuestionSet
 
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / "configs").exists():  # 컨테이너: /opt/piiguard-laya/tests -> /workspace/configs
     ROOT = Path("/workspace")
-QS = ROOT / "configs/questions/pii_v1.yaml"
 
 
 @pytest.fixture
@@ -52,36 +50,52 @@ def test_user_dataset_csv_and_jsonl(home):
         D.get(["nope"], home=home)
 
 
+def _ckpt(d, card):
+    d.mkdir(parents=True)
+    (d / "rl_agent_config.json").write_text("{}")
+    (d / "model.safetensors").write_bytes(b"x")
+    (d / "MODEL_CARD.json").write_text(json.dumps(card))
+
+
 def test_registry_resolution(home):
-    a = registry.resolve("laya-multilingual", home)
-    assert a.kind == "hf" and a.repo == "convaiinnovations/laya" and a.subfolder == "multilingual" and a.name == "laya-multilingual"
-    h = registry.resolve("someone/my-laya:sub", home)
-    assert h.kind == "hf" and h.subfolder == "sub" and h.name == "someone--my-laya--sub"
-    m = home / "models" / "trained" / "r1"
-    m.mkdir(parents=True)
-    (m / "rl_agent_config.json").write_text("{}")
-    (m / "MODEL_CARD.json").write_text(json.dumps({"base": {"name": "laya-multilingual"}, "lineage": ["laya-multilingual"]}))
-    t = registry.resolve("r1", home)
-    assert t.kind == "trained" and t.card["base"]["name"] == "laya-multilingual"
+    a = registry.resolve("base/laya-multilingual", home)  # 아직 받지 않은 기본 Base 모델
+    assert a.kind == "base" and a.id == "base/laya-multilingual" and a.path == home / "models" / "base" / "laya-multilingual"
+    assert a.source["subfolder"] == "multilingual"
+    h = registry.resolve("hf:someone/my-laya:sub", home)
+    assert h.id == "base/someone--my-laya--sub" and h.source == {"repo": "someone/my-laya", "subfolder": "sub", "revision": None}
+    _ckpt(home / "models" / "base" / "laya-multilingual",
+          {"name": "laya-multilingual", "kind": "base", "source": {"repo": "convaiinnovations/laya", "subfolder": "multilingual", "commit": "abc"}})
+    b = registry.resolve("base/laya-multilingual", home)
+    d = b.describe()
+    assert b.local_dir() == home / "models" / "base" / "laya-multilingual"
+    assert d["id"] == "base/laya-multilingual" and d["kind_label"] == "Base 모델" and d["source"]["commit"] == "abc"
+    _ckpt(home / "models" / "trained" / "r1", {"base": {"id": "base/laya-multilingual"}, "lineage": ["base/laya-multilingual"]})
+    _ckpt(home / "models" / "base" / "r1", {"name": "r1", "kind": "base"})  # 같은 이름이라도 경로로 구분된다
+    t = registry.resolve("trained/r1", home)
+    assert t.kind == "trained" and t.id == "trained/r1" and t.describe()["kind_label"] == "학습된 모델"
+    assert registry.resolve("base/r1", home).kind == "base"
+    assert [m["id"] for m in registry.list_local(home)] == ["base/laya-multilingual", "base/r1", "trained/r1"]
+    assert {m["id"]: m["downloaded"] for m in registry.list_models(home)} == {
+        "base/laya-multilingual": True, "base/r1": True, "trained/r1": True, "base/laya-english": False}
+    for bad in ("r1", "laya-multilingual", "someone/my-laya", "trained/", "other/r1", "hf:nope"):
+        with pytest.raises(SystemExit):  # 접두어 없는 이름, 모르는 종류, 잘못된 hf 형식은 받지 않는다
+            registry.resolve(bad, home)
     with pytest.raises(SystemExit):
-        registry.resolve("nothing", home)
+        registry.resolve("trained/nothing", home)
     with pytest.raises(SystemExit):
-        registry.validate_new_name("r1", home)          # 이미 있음
+        registry.resolve("base/nothing", home)              # 기본 Base 모델이 아니면 받지 않는다
     with pytest.raises(SystemExit):
-        registry.validate_new_name("laya-multilingual", home)  # 별칭
+        registry.validate_new_name("r1", home)               # trained/r1 이 이미 있음
     assert registry.validate_new_name("r2", home).name == "r2"
 
 
 def _fake_items(n, rng, sep, lang="ko", variant="original", prefix="x"):
-    qs = QuestionSet.load(QS)
     out = []
     for i in range(n):
         y = i % 2
-        sc = {v: min(1.0, max(0.0, rng.gauss(0.5 + sep if y else 0.5 - sep, 0.15))) for v in qs.variants}
-        ch = {v: {"choice": "contact" if y else "none", "probabilities": {"none": 0.1 if y else 0.9, "contact": 0.9 if y else 0.1}}
-              for v in qs.choice_variants()}
+        s = min(1.0, max(0.0, rng.gauss(0.5 + sep if y else 0.5 - sep, 0.15)))
         out.append({"id": f"{prefix}{i}", "text": f"문장 {prefix}{i}", "lang": lang, "label": y, "categories": ["contact"] if y else [],
-                    "variant": variant, "scores": sc, "choice": ch})
+                    "variant": variant, "score": s, "choice": "contact" if y else "none", "probabilities": {"none": 1 - s, "contact": s}})
     return out
 
 
@@ -91,19 +105,18 @@ def _cfg():
 
 def test_calibrate_and_summarize():
     rng = random.Random(0)
-    qs = QuestionSet.load(QS)
-    calib = E.calibrate(_fake_items(400, rng, 0.25), qs, _cfg()["operating_points"])
-    assert set(calib["thresholds"]) == {"recall95", "fpr05", "default"} and calib["score_variant"] in list(qs.variants) + ["ens"]
+    calib = E.calibrate(_fake_items(400, rng, 0.25), _cfg()["operating_points"])
+    assert set(calib["thresholds"]) == {"recall95", "fpr05", "default"} and calib["calib_auroc"] > 0.9
     m = E.summarize(_fake_items(400, rng, 0.25, prefix="t"), calib)
     assert m["threshold_free"]["auroc"] > 0.9 and m["ops"]["fpr05"]["fpr"] < 0.15 and m["ops"]["recall95"]["recall"] > 0.85
     assert m["classification"]["top1_accuracy"] == 1.0 and "contact" in m["by_category"]
 
 
-def _write_report(home, name, sep, card_base=None, kind="hf"):
+def _write_report(home, model_id, sep, card_base=None):
     rng = random.Random(1 if card_base else 0)
-    qs = QuestionSet.load(QS)
-    out = home / "reports" / name
-    calib = E.calibrate(_fake_items(300, rng, sep), qs, _cfg()["operating_points"])
+    kind = model_id.split("/")[0]
+    out = home / "reports" / model_id
+    calib = E.calibrate(_fake_items(300, rng, sep), _cfg()["operating_points"])
     for ds, var in (("set_a", "original"), ("set_b", "zwsp")):
         items = _fake_items(200, rng, sep, variant=var, prefix=ds)
         (out / ds).mkdir(parents=True)
@@ -113,10 +126,10 @@ def _write_report(home, name, sep, card_base=None, kind="hf"):
         m.update({"dataset": ds, "title": ds})
         (out / ds / "metrics.json").write_text(json.dumps(m))
     (out / "calibration.json").write_text(json.dumps(calib))
-    model = {"name": name, "kind": kind, "benched_at": "2026-11-16T00:00:0%d" % (1 if card_base else 0),
-             "question_set": {"version": qs.version, "sha256": "same"}}
+    model = {"id": model_id, "kind": kind, "benched_at": "2026-11-16T00:00:0%d" % (1 if card_base else 0),
+             "question": {"id": "pii_type", "version": "1", "sha256": "same"}}
     if card_base:
-        model["card"] = {"base": {"name": card_base}, "lineage": [card_base], "training_data": [{"name": "seed", "rows": 10, "used_rows": 9}]}
+        model["card"] = {"base": {"id": card_base}, "lineage": [card_base], "training_data": [{"name": "seed", "rows": 10, "used_rows": 9}]}
     (out / "model.json").write_text(json.dumps(model))
 
 
@@ -125,11 +138,12 @@ def test_summary_compare_and_site(home):
     cfg = _cfg()
     cfg["gate"]["op"] = "default"
     (home / "configs" / "bench.yaml").write_text(yaml.safe_dump(cfg, allow_unicode=True), encoding="utf-8")
-    _write_report(home, "base", 0.05)
-    _write_report(home, "r1", 0.3, card_base="base", kind="trained")
-    s, items = summary.model_summary(home, "r1", with_items=True)
+    _write_report(home, "base/laya", 0.05)
+    _write_report(home, "trained/r1", 0.3, card_base="base/laya")
+    assert summary.list_reports(home) == ["base/laya", "trained/r1"]
+    s, items = summary.model_summary(home, "trained/r1", with_items=True)
     assert set(s["datasets"]) == {"set_a", "set_b"} and s["pooled"]["ALL"]["n"] == 400
-    b, ib = summary.model_summary(home, "base", with_items=True)
+    b, ib = summary.model_summary(home, "base/laya", with_items=True)
     rules = cfg["gate"]
     c = summary.compare(s, b, rules, items, ib)
     assert c["pass"] and c["mcnemar"] is not None and any(x["check"].startswith("dataset_recall:") for x in c["checks"])
@@ -139,8 +153,9 @@ def test_summary_compare_and_site(home):
         assert (home / "reports" / page).exists()
     js = (home / "reports" / "_site" / "data" / "summary.js").read_text(encoding="utf-8")
     data = json.loads(js[js.index("=") + 1:].strip().rstrip(";"))
-    assert set(data["models"]) == {"base", "r1"} and data["compare"]["r1"]["base"]["pass"]
-    it = (home / "reports" / "_site" / "data" / "items" / "r1.js").read_text(encoding="utf-8")
+    assert set(data["models"]) == {"base/laya", "trained/r1"} and data["compare"]["trained/r1"]["base/laya"]["pass"]
+    assert data["kind_labels"] == {"base": "Base 모델", "trained": "학습된 모델"} and data["local"] == []
+    it = (home / "reports" / "_site" / "data" / "items" / "trained--r1.js").read_text(encoding="utf-8")
     assert "문장 set_a0" in it and idx.name == "index.html"
 
 

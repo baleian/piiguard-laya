@@ -1,7 +1,7 @@
 """모델 학습 (`make train BASE=... NAME=... DATA=...`).
 
-    BASE   기준 모델. Hugging Face 모델(laya-multilingual, org/repo[:하위폴더]) 또는 models/trained/ 의 학습 모델
-    NAME   새 모델 이름 → models/trained/<NAME>/
+    BASE   기준 모델 id. base/<이름> (models/base/) 또는 trained/<이름> (models/trained/), hf:org/repo[:하위폴더]
+    NAME   새 모델 이름 → models/trained/<NAME>/ (모델 id trained/<NAME>)
     DATA   학습용 데이터셋 이름 (training/<이름>/), 쉼표로 여러 개
 
 학습 방식은 Laya 의 RLCD 다. 검토 라벨(정답)을 적정 점수 규칙(proper scoring rule) 보상으로 쓰는
@@ -32,40 +32,28 @@ import yaml
 from . import datasets as D
 from . import paths, registry
 from . import taxonomy as T
-from .detector import QuestionSet
+from .detector import Question
 from .surrogate import surrogate
 
 
-def make_row(text: str, is_pii: bool, categories: Sequence[str], qs: QuestionSet, variants: Sequence[str],
-             confidence: Optional[float] = None) -> Optional[Dict]:
-    """Laya 학습 행 {state, questions, expected|gold}. choice 문구는 대표 유형, noul 문구는 포함 여부를 정답으로 둔다."""
+def make_row(text: str, is_pii: bool, categories: Sequence[str], q: Question, confidence: Optional[float] = None) -> Dict:
+    """Laya 학습 행 {state, questions, expected|gold}. 정답은 대표 유형(개인정보가 없으면 none)이다.
+
+    confidence(0.5~1) 가 1 미만이면 그만큼만 확신하는 soft label 로 넣는다.
+    개인정보라는 것만 알고 유형을 모르면 '개인정보 없음' 확률만 낮추고 유형은 고르게 둔다.
+    """
     primary = T.primary_category(categories) if is_pii else T.NONE
-    expected, gold = {}, {}
-    conf = None if confidence is None or float(confidence) >= 0.999 else max(0.5, float(confidence))
-    for v in variants:
-        spec = qs.variants[v]
-        if spec["kind"] == "choice":
-            if is_pii and primary == T.NONE:
-                continue  # 개인정보라는 것만 알고 유형을 모르면 choice 는 라벨링하지 않는다
-            inv = {canon: key for key, canon in (spec.get("key_map") or {}).items()}
-            key, none_key = inv.get(primary, primary), inv.get(T.NONE, T.NONE)
-            if conf is None:
-                expected[v] = key
-            else:
-                gold[v] = {"probabilities": {key: conf, none_key: 1 - conf} if key != none_key else {key: 1.0}}
-        else:
-            if conf is None:
-                expected[v] = bool(is_pii)
-            else:
-                p_true = conf if is_pii else 1 - conf
-                gold[v] = {"probabilities": {"true": p_true, "false": 1 - p_true}}
-    if not expected and not gold:
-        return None
-    row = {"state": text, "questions": {v: qs.variants[v]["question"] for v in variants}}
-    if expected:
-        row["expected"] = expected
-    if gold:
-        row["gold"] = gold
+    conf = 1.0 if confidence is None or float(confidence) >= 0.999 else max(0.5, float(confidence))
+    pii = T.PII_CATEGORIES
+    row: Dict = {"state": text, "questions": q.questions()}
+    if is_pii and primary == T.NONE:
+        row["gold"] = {q.id: {"probabilities": {**{c: conf / len(pii) for c in pii}, T.NONE: 1 - conf}}}
+    elif conf == 1.0:
+        row["expected"] = {q.id: primary}
+    elif is_pii:
+        row["gold"] = {q.id: {"probabilities": {primary: conf, T.NONE: 1 - conf}}}
+    else:
+        row["gold"] = {q.id: {"probabilities": {T.NONE: conf, **{c: (1 - conf) / len(pii) for c in pii}}}}
     return row
 
 
@@ -97,8 +85,8 @@ def _replace_work_paths(report: Path) -> None:
 
 def _lineage(ref: registry.ModelRef) -> List[str]:
     if ref.kind == "trained" and ref.card:
-        return list(ref.card.get("lineage") or []) + [ref.name]
-    return [ref.name]
+        return list(ref.card.get("lineage") or []) + [ref.id]
+    return [ref.id]
 
 
 def train(home: Path, base: str, name: str, data: List[str], device: str = "auto", overwrite: bool = False,
@@ -108,9 +96,7 @@ def train(home: Path, base: str, name: str, data: List[str], device: str = "auto
     tcfg = yaml.safe_load(paths.config(home, "train.yaml").read_text(encoding="utf-8"))
     tcfg.update({k: v for k, v in overrides.items() if v is not None})
     bcfg = yaml.safe_load(paths.config(home, "bench.yaml").read_text(encoding="utf-8"))
-    qs_path = (home / bcfg["question_set"]).resolve()
-    qs = QuestionSet.load(qs_path)
-    variants = list(qs.variants)
+    q = Question.load((home / bcfg["question"]).resolve())
 
     out = registry.validate_new_name(name, home, overwrite)
     base_ref = registry.resolve(base, home)
@@ -136,10 +122,7 @@ def train(home: Path, base: str, name: str, data: List[str], device: str = "auto
                     continue
                 text = sr["text"]
                 stats["surrogated"] += 1
-            row = make_row(text, bool(r["label"]), r["categories"], qs, variants, r.get("confidence"))
-            if row is None:
-                stats["unusable"] += 1
-                continue
+            row = make_row(text, bool(r["label"]), r["categories"], q, r.get("confidence"))
             rows.extend([row] * max(1, int(r.get("weight", 1) or 1)))
             used += 1
         desc = d.describe()
@@ -154,7 +137,7 @@ def train(home: Path, base: str, name: str, data: List[str], device: str = "auto
     n_eval = int(tcfg.get("eval_rows", 1500))
     pos = [r for r in cal if r["label"] == 1][: n_eval // 2]
     neg = [r for r in cal if r["label"] == 0][: n_eval - len(pos)]
-    eval_rows = [x for x in (make_row(r["text"], bool(r["label"]), r["categories"], qs, variants) for r in pos + neg) if x]
+    eval_rows = [make_row(r["text"], bool(r["label"]), r["categories"], q) for r in pos + neg]
 
     if out.exists() and overwrite:
         shutil.rmtree(out)
@@ -166,8 +149,8 @@ def train(home: Path, base: str, name: str, data: List[str], device: str = "auto
         cfg = TrainConfig(epochs=int(tcfg["epochs"]), micro_batch=int(tcfg["micro_batch"]), grad_accum=int(tcfg["grad_accum"]),
                           encoder_lr=float(tcfg["encoder_lr"]), head_lr=float(tcfg["head_lr"]), loss=tcfg["loss"],
                           shuffle_options=("choice",), freeze_encoder=bool(tcfg.get("freeze_encoder", False)), seed=int(tcfg["seed"]),
-                          max_len=int(tcfg["max_len"]), head_max_len=qs.head_max_len, eval_data=str(work / "eval.jsonl"))
-        print(f"[train] 기준 모델 {base_ref.name} → 새 모델 {name} · 학습 행 {len(rows)} · 평가 행 {len(eval_rows)} · {dict(stats)}")
+                          max_len=int(tcfg["max_len"]), head_max_len=q.head_max_len, eval_data=str(work / "eval.jsonl"))
+        print(f"[train] 기준 모델 {base_ref.id} → 새 모델 trained/{name} · 학습 행 {len(rows)} · 평가 행 {len(eval_rows)} · {dict(stats)}")
         summary = finetune(data=str(work / "train.jsonl"), model_dir=str(base_dir), output_dir=str(out), config=cfg, device=device)
     shutil.rmtree(out / "checkpoint_latest", ignore_errors=True)  # 에폭 중간 저장본 (최종 모델과 별도)
     _replace_work_paths(out / "train_report.json")
@@ -178,12 +161,12 @@ def train(home: Path, base: str, name: str, data: List[str], device: str = "auto
     tr = summary.get("train_report") or {}
     card = {
         "name": name, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "description": f"{base_ref.name} 에서 {', '.join(d.name for d in sets)} 로 추가 학습",
+        "description": f"{base_ref.id} 에서 {', '.join(d.name for d in sets)} 로 추가 학습",
         "base": base_ref.describe(), "lineage": _lineage(base_ref),
         "training_data": data_info, "train_rows": len(rows), "data_stats": dict(stats),
         "leakage_check": {"excluded_overlap_with_eval": stats.get("excluded_overlap_with_eval", 0),
                           "rule": "평가용 데이터셋(datasets/) 원문과 같은 행은 학습에서 제외"},
-        "question_set": {"path": str(bcfg["question_set"]), "version": qs.version, "sha256": qs.rendered_sha256()},
+        "question": q.describe(str(bcfg["question"])),
         "objective": tcfg["loss"],
         "config": {k: v for k, v in cfg.__dict__.items() if not k.startswith("_") and k != "eval_data"},  # eval_data 는 지운 임시 파일
         "train_eval": {"source": EVAL_SOURCE, "rows": len(eval_rows), "items": tr.get("eval_items"),
@@ -195,7 +178,7 @@ def train(home: Path, base: str, name: str, data: List[str], device: str = "auto
                 "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None, "platform": platform.platform()},
     }
     (out / "MODEL_CARD.json").write_text(json.dumps(card, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-    print(f"[train] 완료 → models/trained/{name}/ (평가: make bench MODEL={name})")
+    print(f"[train] 완료 → models/trained/{name}/ (평가: make bench MODEL=trained/{name})")
     if build_site:
         from . import site
 

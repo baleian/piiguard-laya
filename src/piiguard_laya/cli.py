@@ -2,15 +2,15 @@
 
   piiguard-laya prepare                                   기본 데이터셋 내려받기·변환 → datasets/, training/seed
   piiguard-laya datasets                                  평가용·학습용 데이터셋 목록
-  piiguard-laya models                                    쓸 수 있는 모델 목록
-  piiguard-laya bench --model M [--dataset a,b] [--limit N]  평가 → reports/<M>/<데이터셋>/
+  piiguard-laya models                                    모델 목록 (models/base/, models/trained/)
+  piiguard-laya bench --model M [--dataset a,b] [--limit N]  평가 → reports/<M>/<데이터셋>/  (M = base/<이름> | trained/<이름>)
   piiguard-laya train --base B --name N --data d1[,d2]    학습 → models/trained/<N>/
   piiguard-laya site                                      결과 페이지 다시 만들기 → reports/*.html
   piiguard-laya compare --model A --base B                두 모델 회귀 검사 (통과 0 / 미달 2)
   piiguard-laya review-export --log F --model M --out Q   운영 로그 → 검토 큐 CSV
   piiguard-laya review-import Q --into NAME               검토 결과 → training/<NAME>/
-  piiguard-laya inspect-questions [--model M]             질문 문구 토큰 예산 점검
-  piiguard-laya export-mlx NAME                           학습 모델 → MLX 변환 (Apple Silicon)
+  piiguard-laya inspect-question [--model M]              판정 질문 토큰 예산 점검
+  piiguard-laya export-mlx M                              모델 → MLX 변환 (Apple Silicon)
   piiguard-laya env                                       실행 환경 확인
 """
 from __future__ import annotations
@@ -35,8 +35,7 @@ def _opt_int(s):
 
 def cmd_env(a):
     info = {"platform": platform.platform(), "machine": platform.machine(), "python": platform.python_version(),
-            "home": str(paths.home()), "hf_home": os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface")),
-            "torch_index": os.environ.get("PIIGUARD_LAYA_TORCH_INDEX", "native")}
+            "home": str(paths.home()), "torch_index": os.environ.get("PIIGUARD_LAYA_TORCH_INDEX", "native")}
     try:
         import torch
 
@@ -82,11 +81,16 @@ def cmd_models(a):
     from .summary import list_reports
 
     benched = set(list_reports())
-    print("이름                 종류          평가  설명")
+    print("  모델 (MODEL=)                 종류          평가  설명")
     for m in registry.list_models():
-        desc = m.get("description") or (f"기준 {m.get('base')} · 학습 데이터 {', '.join(m.get('training_data') or [])}")
-        print(f"  {m['name']:18s} {('Hugging Face' if m['kind'] == 'hf' else '직접 학습'):12s} {'O' if m['name'] in benched else '-':4s}  {desc}")
-    print("\nHugging Face 저장소도 바로 쓸 수 있습니다: MODEL=org/repo 또는 MODEL=org/repo:하위폴더")
+        if m["kind"] == "trained":
+            desc = f"기준 {m.get('base') or '–'} · 학습 데이터 {', '.join(m.get('training_data') or []) or '–'}"
+        elif m.get("downloaded"):
+            desc = m.get("description") or ""
+        else:
+            desc = f"아직 받지 않음 (처음 쓸 때 models/{m['id']}/ 에 받음) · {m.get('description') or ''}"
+        print(f"  {m['id']:28s} {m['kind_label']:10s} {'O' if m['id'] in benched else '-':4s}  {desc}")
+    print("\nHugging Face 저장소를 Base 모델로 받으려면: MODEL=hf:org/repo 또는 MODEL=hf:org/repo:하위폴더 → models/base/org--repo[--하위폴더]/")
 
 
 def cmd_bench(a):
@@ -118,8 +122,8 @@ def cmd_compare(a):
 
     home = paths.home()
     rules = yaml.safe_load(paths.config(home, "bench.yaml").read_text(encoding="utf-8"))["gate"]
-    ma, ia = model_summary(home, registry.resolve(a.model).name, with_items=True)
-    mb, ib = model_summary(home, registry.resolve(a.base).name, with_items=True)
+    ma, ia = model_summary(home, registry.resolve(a.model).id, with_items=True)
+    mb, ib = model_summary(home, registry.resolve(a.base).id, with_items=True)
     r = compare(ma, mb, rules, ia, ib)
     print(f"회귀 검사: {'통과' if r['pass'] else '미달'}  ({a.model} vs 기준 {a.base}, 운영 기준 {r['op']})")
     for c in r["checks"]:
@@ -150,25 +154,23 @@ def cmd_inspect(a):
     from . import registry
     from .bench import load_config
     from .detector import LayaDetector
-    from .inspect_questions import inspect
+    from .inspect_question import inspect
 
     home = paths.home()
     ref = registry.resolve(a.model, home)
-    lx = LayaDetector(model=str(ref.local_dir()), device=a.device, question_set=(home / load_config(home)["question_set"]).resolve())
-    bad = False
-    for r in inspect(lx):
-        flag = "지침 잘림" if r["instruction_truncated"] else ("옵션 잘림" if r["option_truncated"] else "ok")
-        bad |= flag != "ok"
-        print(f"{r['variant']:5s} head={r['head_tokens']:4d}/{r['head_max_len']} instr={r['instruction_tokens']:4d}"
-              f"(room {r['instruction_room']}) opt_max={r['option_tokens_max']:3d} state_room={r['state_room_at_max_len']} {flag}")
-    sys.exit(1 if bad else 0)
+    lx = LayaDetector(model=str(ref.local_dir()), device=a.device, question=(home / load_config(home)["question"]).resolve())
+    r = inspect(lx)
+    flag = "지침 잘림" if r["instruction_truncated"] else ("선택지 잘림" if r["option_truncated"] else "ok")
+    print(f"{r['question']}  head={r['head_tokens']}/{r['head_max_len']} 지침={r['instruction_tokens']}(여유 {r['instruction_room']})"
+          f" 선택지 최대={r['option_tokens_max']} 문장 여유={r['state_room_at_max_len']}  {flag}")
+    sys.exit(0 if flag == "ok" else 1)
 
 
 def cmd_export_mlx(a):
     from . import registry
 
-    dst = registry.export_mlx(registry.resolve(a.name), a.dtype)
-    print(f"→ {dst}  (make bench 는 MLX 백엔드에서 이 변환본을 씁니다. 변환본이 없으면 bench 가 자동으로 만듭니다)")
+    dst = registry.export_mlx(registry.resolve(a.model), a.dtype)
+    print(f"→ {dst}  (MLX 백엔드의 make bench 가 이 변환본을 씁니다. 없으면 bench 가 자동으로 만듭니다)")
 
 
 def main(argv=None):
@@ -191,7 +193,7 @@ def main(argv=None):
     s = sub.add_parser("models", help="모델 목록"); s.set_defaults(fn=cmd_models)
 
     s = sub.add_parser("bench", help="모델 평가")
-    s.add_argument("--model", required=True, help="laya-multilingual | 학습 모델 이름 | org/repo[:하위폴더]")
+    s.add_argument("--model", required=True, help="base/<이름> | trained/<이름> | hf:org/repo[:하위폴더]")
     s.add_argument("--dataset", default=None, help="평가할 데이터셋 (쉼표로 여러 개, 없으면 전부)")
     s.add_argument("--limit", default=None, help="데이터셋마다 test 행 최대 수 (빠른 확인용)")
     s.add_argument("--device", default=dev, help="auto | cuda | mps | cpu")
@@ -203,8 +205,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_bench)
 
     s = sub.add_parser("train", help="모델 학습")
-    s.add_argument("--base", required=True, help="기준 모델 (laya-multilingual | 학습 모델 이름 | org/repo[:하위폴더])")
-    s.add_argument("--name", required=True, help="새 모델 이름 → models/trained/<이름>/")
+    s.add_argument("--base", required=True, help="기준 모델: base/<이름> | trained/<이름> | hf:org/repo[:하위폴더]")
+    s.add_argument("--name", required=True, help="새 모델 이름 → models/trained/<이름>/ (평가할 때는 trained/<이름>)")
     s.add_argument("--data", required=True, help="학습용 데이터셋 이름 (training/<이름>/, 쉼표로 여러 개)")
     s.add_argument("--epochs", type=int, default=None)
     s.add_argument("--micro-batch", type=int, default=None)
@@ -233,12 +235,12 @@ def main(argv=None):
     s.add_argument("file"); s.add_argument("--into", required=True); s.add_argument("--allow-anonymous", action="store_true")
     s.set_defaults(fn=cmd_review_import)
 
-    s = sub.add_parser("inspect-questions", help="질문 문구 토큰 예산 점검")
-    s.add_argument("--model", default="laya-multilingual"); s.add_argument("--device", default=dev)
+    s = sub.add_parser("inspect-question", help="판정 질문 토큰 예산 점검")
+    s.add_argument("--model", default="base/laya-multilingual"); s.add_argument("--device", default=dev)
     s.set_defaults(fn=cmd_inspect)
 
-    s = sub.add_parser("export-mlx", help="학습 모델을 MLX 로 변환")
-    s.add_argument("name"); s.add_argument("--dtype", default="float16")
+    s = sub.add_parser("export-mlx", help="모델을 MLX 로 변환 (Apple Silicon)")
+    s.add_argument("model", help="base/<이름> | trained/<이름>"); s.add_argument("--dtype", default="float16")
     s.set_defaults(fn=cmd_export_mlx)
 
     a = p.parse_args(argv)

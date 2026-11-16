@@ -4,9 +4,9 @@
   const S = P.S, el = P.el, td = P.td, $ = (id) => document.getElementById(id);
   const byLatest = (a, c) => String(S.models[c].model.benched_at || '').localeCompare(String(S.models[a].model.benched_at || ''));
   const names = P.models().sort(byLatest);
-  if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=laya-multilingual'); return; }
+  if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=base/laya-multilingual'); return; }
   const msel = $('m'), bsel = $('b');
-  P.options(msel, names.map((n) => [n, `${n} · ${P.kindLabel(S.models[n])}`]));
+  P.options(msel, names.map((n) => [n, n]));
   const h = P.hash();
   let m = names.includes(h.model) ? h.model : names[0];
   const cardBase = (n) => P.baseOf(n);
@@ -105,9 +105,10 @@
     kv.replaceChildren();
     const row = (k, val) => { kv.append(el('dt', null, k)); const d = el('dd'); if (val instanceof Node) d.append(val); else d.textContent = val == null || val === '' ? '–' : val; kv.append(d); };
     row('종류', P.kindLabel(M));
-    row('출처', mi.kind === 'hf' ? `${mi.repo}${mi.subfolder ? ' / ' + mi.subfolder : ''}${mi.commit ? ' @ ' + mi.commit.slice(0, 10) : ''}` : mi.path);
+    row('위치', mi.path);
+    if (mi.kind === 'base') row('출처', P.sourceText(mi.source) + (mi.license ? ` (${mi.license})` : ''));
     if (card) {
-      row('기준 모델', card.base ? card.base.name : '–');
+      row('기준 모델', card.base ? card.base.id || card.base.name : '–');
       row('계보', [...(card.lineage || []), m].join(' → '));
       row('학습 데이터', (card.training_data || []).map((t) => `${t.name} · 사용 ${P.int(t.used_rows)}건 / 전체 ${P.int(t.rows)}건`).join(', '));
       row('평가 문장 겹침 제외', P.int(g(card, 'leakage_check', 'excluded_overlap_with_eval') || 0) + '건');
@@ -115,14 +116,12 @@
     }
     row('평가한 날', P.date(mi.benched_at));
     row('평가 장치', [g(mi, 'runtime', 'device'), g(mi, 'runtime', 'gpu')].filter(Boolean).join(' · '));
-    row('질문 문구', g(mi, 'question_set', 'version'));
     row('임계값', OPS.map((o) => `${P.opName(o)} ${P.thr(M.calibration.thresholds[o])}`).join(' · '));
     const te = $('train-eval');
     te.replaceChildren(el('span', 'label', '학습 중 평가'));
     const tev = card && card.train_eval;
     if (tev && tev.before && tev.after) {
-      const size = tev.rows ? `${P.int(tev.rows)}문장 (질문 문구별 판정 ${P.int(tev.items)}건)` : `질문 문구별 판정 ${P.int(tev.items)}건`;
-      te.append(el('span', 'desc', `${tev.source} ${size}. 판정 하나하나의 정답률과 확률 보정 오차(ECE · Brier, 낮을수록 좋음)입니다.`));
+      te.append(el('span', 'desc', `${tev.source} ${P.int(tev.rows || tev.items)}문장. 유형(개인정보 없음 포함)을 맞힌 비율과 확률 보정 오차(ECE · Brier, 낮을수록 좋음)입니다.`));
       const tb = el('table'), hd = el('thead'), hr = el('tr');
       ['', '학습 전', '학습 후'].forEach((x) => hr.append(el('th', null, x))); hd.append(hr);
       const body = el('tbody');
@@ -133,7 +132,7 @@
       });
       tb.append(hd, body); te.append(tb);
       if (card.epoch_loss) te.append(el('span', 'desc', '에폭별 학습 손실: ' + card.epoch_loss.map((x) => (+x).toFixed(3)).join(' → ')));
-    } else te.append(el('span', 'desc', mi.kind === 'hf' ? 'Hugging Face 에서 받은 원본 모델이라 학습 기록이 없습니다.' : '학습 기록이 없습니다.'));
+    } else te.append(el('span', 'desc', mi.kind === 'base' ? 'Base 모델이라 학습 기록이 없습니다.' : '학습 기록이 없습니다.'));
 
     // 핵심 결과
     const hero = [];
@@ -252,10 +251,10 @@
     const lat = el('tbody'), lh = el('thead'), lr = el('tr');
     ['모델', '장치', 'p50', 'p95', 'p99', '측정 요청 수'].forEach((x) => lr.append(el('th', null, x))); lh.append(lr);
     [[b, B], [m, M]].filter(([, X]) => X).forEach(([n, X]) => {
-      const L = X.latency, r0 = L && L.results && L.results[0];
+      const L = X.latency && X.latency.p50_ms != null ? X.latency : null;
       const r = el('tr'); r.append(td(n), td(L ? [L.gpu, L.device].filter(Boolean).join(' · ') : '–'));
-      ['p50_ms', 'p95_ms', 'p99_ms'].forEach((k) => r.append(td(r0 ? (+r0[k]).toFixed(1) + ' ms' : '–', 'num')));
-      r.append(td(r0 ? P.int(r0.n) : '–', 'num')); lat.append(r);
+      ['p50_ms', 'p95_ms', 'p99_ms'].forEach((k) => r.append(td(L ? (+L[k]).toFixed(1) + ' ms' : '–', 'num')));
+      r.append(td(L ? P.int(L.n) : '–', 'num')); lat.append(r);
     });
     $('lat').replaceChildren(lh, lat);
 
@@ -277,16 +276,6 @@
       });
     });
     $('detail').replaceChildren(dh, db);
-    const wh = el('thead'), wr = el('tr'); ['모델', '문구', '유형', '보정용 AUROC', '한국어', '영어', '선택'].forEach((x) => wr.append(el('th', null, x))); wh.append(wr);
-    const wb = el('tbody');
-    [[m, M], [b, B]].filter(([, X]) => X).forEach(([n, X]) => {
-      Object.entries(X.calibration.variants || {}).forEach(([k, z]) => {
-        const r = el('tr');
-        [n, k, z.kind, P.f3(z.calib_auroc), P.f3(z.calib_auroc_ko), P.f3(z.calib_auroc_en), k === X.calibration.score_variant ? '점수로 사용' : ''].forEach((x) => r.append(td(x)));
-        wb.append(r);
-      });
-    });
-    $('wording').replaceChildren(wh, wb);
 
     // 출처
     const used = new Set([...dsNames, ...(B ? Object.keys(B.datasets) : [])]);

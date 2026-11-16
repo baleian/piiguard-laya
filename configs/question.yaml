@@ -1,0 +1,43 @@
+# 판정 질문 — 모든 모델을 이 질문 하나로 평가하고 학습한다.
+#
+# Laya 는 질문(지침 + 선택지)을 문장과 함께 넣고 선택지마다 확률을 낸다.
+#   점수 = 1 − P(none)   개인정보가 들어 있을 확률. 운영 기준의 임계값 이상이면 차단한다
+#   유형 = 확률이 가장 높은 선택지 (none 이면 개인정보 없음)
+#
+# 판단 기준 — 입력이 대화·문서·로그·설정·소스코드 어느 형태든 같은 기준을 쓴다:
+#   개인정보 아님 : 필드·컬럼·변수·함수명, 형식 설명·정규식, 플레이스홀더, 마스킹 값,
+#                   널리 알려진 예시·더미 값(홍길동, 010-1234-5678, 4111-1111-1111-1111, example.com,
+#                   127.0.0.1 등 사설 IP), 회사·시스템 정보
+#   개인정보 맞음 : 실제처럼 보이는 값은 코드·로그·테스트 데이터 안에 있어도 개인정보
+#
+# 선택지 키는 개인정보 유형 키(none, national_id, ...)와 같아야 한다.
+# 질문을 바꾸면 version 을 올린다. 평가 결과와 모델 카드에 질문 해시가 남고, make bench 는 질문이 바뀐 모델을 다시 평가한다.
+#
+# 토큰 예산: Laya 는 [지침 + 선택지] 를 head_max_len 안에 넣고, 넘치면 지침을 자른다 (선택지 하나는 최대 48 토큰).
+#   기본값 256 이면 아래 지침이 잘리므로 512 를 쓴다. 문구를 고친 뒤에는 `make inspect` 로 잘림 여부를 확인한다.
+#   학습(make train)도 같은 head_max_len 을 쓴다.
+
+id: pii_type
+version: 1
+head_max_len: 512
+max_len: 2048
+
+question:
+  type: choice
+  instructions: >-
+    You are the privacy filter of an AI assistant. The text may be a chat
+    message, document, log, configuration or source code. Which kind of real personal information
+    about a person does it contain? If several, pick the most sensitive. NOT personal information:
+    field, column, variable or function names; format descriptions or regex patterns; placeholders and
+    masked values; well-known dummy or example values such as 홍길동, John Doe, 010-1234-5678,
+    123-45-6789, 4111-1111-1111-1111, test@example.com, 127.0.0.1 or other private IPs; company or
+    system data. Realistic values ARE personal information, even inside code, logs or test data.
+  criteria:
+    none: "no real personal data: field or function names, formats, masked or dummy example values, order numbers, amounts, company contacts"
+    national_id: "resident registration, foreigner registration, passport or driver's license number"
+    financial: "bank account number, credit or debit card number, CVV, IBAN, routing number or PIN"
+    credential: "username or user ID, password, API key or secret, IP address, personal website URL"
+    sensitive: "health condition, height or weight, blood type, religion or beliefs"
+    contact: "a person's phone number, email address, home address or location"
+    identity: "a person's name, nickname, date of birth, age or gender"
+    quasi_identifier: "workplace, school, job title, department, major, club, military unit or car plate"

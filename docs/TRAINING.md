@@ -8,24 +8,24 @@
                    │  make train BASE=... NAME=... DATA=...
                    ▼
         models/trained/<NAME>/  + MODEL_CARD.json
-                   │  make bench MODEL=<NAME>
+                   │  make bench MODEL=trained/<NAME>
                    ▼
-        reports/<NAME>/  →  evals.html (모델 카드의 기준 모델과 비교) · make compare
+        reports/trained/<NAME>/  →  evals.html (모델 카드의 기준 모델과 비교) · make compare
 ```
 
 ## 1. 학습하기
 
 ```bash
-make train NAME=r1 DATA=seed                              # 기본 모델(laya-multilingual)에서 학습
-make train BASE=r1 NAME=r2 DATA=seed,review-2026-11       # r1 에서 이어서 학습, 데이터셋 2개
-make train BASE=r1 NAME=r2 DATA=review-2026-11 OVERWRITE=1 EPOCHS=1
-make bench MODEL=r2
+make train NAME=r1 DATA=seed                                      # Base 모델(base/laya-multilingual)에서 학습
+make train BASE=trained/r1 NAME=r2 DATA=seed,review-2026-11       # r1 에서 이어서 학습, 데이터셋 2개
+make train BASE=trained/r1 NAME=r2 DATA=review-2026-11 OVERWRITE=1 EPOCHS=1
+make bench MODEL=trained/r2
 ```
 
 | 변수 | 의미 |
 |---|---|
-| `BASE` | 기준 모델. 기본 `laya-multilingual`. 학습한 모델(`models/trained/` 의 이름), 별칭, Hugging Face 저장소(`org/repo[:하위폴더]`) 모두 된다 |
-| `NAME` | 새 모델 이름. 영문 · 숫자 · `.` `_` `-`. 별칭과 같은 이름은 쓸 수 없다 |
+| `BASE` | 기준 모델. 기본 `base/laya-multilingual`. `base/<이름>`(models/base/), `trained/<이름>`(models/trained/), `hf:org/repo[:하위폴더]`(models/base/ 에 받음) |
+| `NAME` | 새 모델 이름 → `models/trained/<NAME>/` (모델 id `trained/<NAME>`). 영문 · 숫자 · `.` `_` `-` |
 | `DATA` | 학습용 데이터셋 이름 (`training/<이름>/`). 쉼표로 여러 개 |
 | `EPOCHS` · `MICRO_BATCH` · `GRAD_ACCUM` | 학습 설정. 나머지 기본값은 `configs/train.yaml` |
 | `OVERWRITE=1` | 같은 이름의 모델을 지우고 다시 만든다. 그 모델의 이전 평가 결과는 다음 `make bench` 때 다시 만든다 |
@@ -39,8 +39,9 @@ make bench MODEL=r2
 | 평가 누수 차단 | 평가용 데이터셋(`datasets/`)과 원문이 같은 행은 뺀다. 뺀 수는 모델 카드 `leakage_check` 에 남는다 |
 | 대체값 치환 | `source` 가 `review` 이고 `spans` 가 있으면, 그 위치의 실제 값을 같은 형식의 합성값으로 바꾼 뒤 학습한다. 문맥은 그대로 두고 실제 값은 학습 데이터와 가중치에 남지 않는다 |
 | 가중 | `weight`(정수)만큼 그 행을 반복한다 |
-| soft label | `confidence` 가 1 미만이면 정답을 확률로 넣는다 (예: 0.7 → P(개인정보) = 0.7) |
-| 문구 | `configs/bench.yaml` 의 질문 문구 4개를 모두 학습한다. `choice` 문구는 대표 유형을, 예/아니오 문구는 포함 여부를 정답으로 둔다. 유형을 모르는 개인정보 행은 예/아니오 문구만 학습한다 |
+| 정답 | 판정 질문(`configs/question.yaml` 의 `pii_type`)의 정답으로 대표 유형을 둔다. 개인정보가 없으면 `none` |
+| soft label | `confidence` 가 1 미만이면 정답을 확률로 넣는다 (예: 0.7 → 대표 유형 0.7, `none` 0.3) |
+| 유형 모름 | 개인정보라는 것만 알고 유형이 없으면 `none` 확률만 0 으로 두고 유형은 고르게 나눈다 |
 
 ### 모델 카드
 
@@ -51,19 +52,19 @@ make bench MODEL=r2
 | `base` · `lineage` | 기준 모델(출처 · 리비전)과 계보. 예: `["laya-multilingual", "r1"]` |
 | `training_data` | 학습용 데이터셋별 이름 · 제목 · sha256 · 전체 행 수 · 사용한 행 수 · 라벨 분포 |
 | `data_stats` · `leakage_check` | 뺀 행(평가 데이터와 겹침, 위치를 찾지 못한 스팬)과 대체값 치환 수 |
-| `question_set` | 학습에 쓴 질문 문구 버전 · sha256 |
+| `question` | 학습에 쓴 판정 질문 id · 버전 · sha256 |
 | `config` · `objective` | 학습 설정 전체와 목적함수 |
-| `train_eval` | 학습 전후 지표. 평가용 데이터셋 calib 행 표본(기본 1,500건, 학습에는 쓰지 않음)에서 정확도 · 손실 · ECE · Brier |
+| `train_eval` | 학습 전후 지표. 평가용 데이터셋 calib 행 표본(기본 1,500건, 학습에는 쓰지 않음)에서 유형 정답률(`none` 포함) · 손실 · ECE · Brier |
 | `epoch_loss` · `temperature` · `calibration` | 에폭별 손실, 학습 후 온도 보정 결과 |
 | `env` | laya · torch 버전, 장치 |
 
-`train_eval` 은 학습이 잘 됐는지 빠르게 보는 값이다. 운영 기준별 탐지율 · 오탐률은 `make bench MODEL=<NAME>` 의 결과로 판단한다.
+`train_eval` 은 학습이 잘 됐는지 빠르게 보는 값이다. 운영 기준별 탐지율 · 오탐률은 `make bench MODEL=trained/<NAME>` 의 결과로 판단한다.
 
 ## 2. 학습 방식 — RLCD
 
 upstream `laya.train` 의 기본 목적함수이며, 이 프로젝트는 그대로 감싸서 쓴다(`src/piiguard_laya/training.py`).
 
-- **정책**: Laya 의 옵션별 로짓 (`choice` 8개, 예/아니오 2개)
+- **정책**: Laya 의 선택지별 로짓 (판정 질문의 유형 8개)
 - **탐색**: 로짓에 가우시안 노이즈를 더한 샘플 `rl_samples` 개. sigma 는 0.4 에서 0.1 로 줄어든다.
 - **보상**: 샘플 분포와 정답 분포 사이의 적정 점수 규칙(proper scoring rule: spherical + ranked probability score)
 - **갱신**: GRPO 방식의 그룹 상대 이점(advantage) 정책경사 + soft cross-entropy 항
@@ -83,10 +84,10 @@ upstream `laya.train` 의 기본 목적함수이며, 이 프로젝트는 그대�
 운영 중 판정한 문장을 검토해 학습용 데이터셋으로 쌓는다. 잘한 판정과 잘못한 판정을 모두 모은다.
 
 ```bash
-make review-export LOG=feedback/logs.jsonl MODEL=r1            # → feedback/queue.csv
+make review-export LOG=feedback/logs.jsonl MODEL=trained/r1    # → feedback/queue.csv
 # (검토자가 CSV 를 채운다)
 make review-import FILE=feedback/queue.csv INTO=review-2026-11  # → training/review-2026-11/
-make train BASE=r1 NAME=r2 DATA=seed,review-2026-11
+make train BASE=trained/r1 NAME=r2 DATA=seed,review-2026-11
 ```
 
 Docker 로 실행할 때 컨테이너에서 보이는 폴더는 `configs/`, `datasets/`, `training/`, `models/`, `reports/`, `feedback/` 다. 로그 파일은 `feedback/` 아래에 둔다.
@@ -99,7 +100,7 @@ Docker 로 실행할 때 컨테이너에서 보이는 폴더는 `configs/`, `dat
 {"text": "...", "id": "req-0001", "lang": "ko"}
 ```
 
-`id` 와 `lang` 은 선택이다. 판정 점수가 없으면 `MODEL` 로 채점한다. 판정 임계값은 그 모델의 `reports/<모델>/calibration.json` 을 쓰므로 먼저 `make bench MODEL=<모델>` 로 평가해 둔다. 기본 운영 기준은 `fpr05` 다(`piiguard-laya review-export --op recall95` 처럼 바꿀 수 있다).
+`id` 와 `lang` 은 선택이다. 판정 점수가 없으면 `MODEL` 로 채점한다. 판정 임계값은 그 모델의 `reports/<모델 id>/calibration.json` 을 쓰므로 먼저 `make bench MODEL=<모델 id>` 로 평가해 둔다. 기본 운영 기준은 `fpr05` 다(`piiguard-laya review-export --op recall95` 처럼 바꿀 수 있다).
 
 ### 검토 큐
 
@@ -127,10 +128,10 @@ Docker 로 실행할 때 컨테이너에서 보이는 폴더는 `configs/`, `dat
 ## 4. 비교와 회귀 검사
 
 ```bash
-make compare MODEL=r2 BASE=r1
+make compare MODEL=trained/r2 BASE=trained/r1
 ```
 
-두 모델이 같은 질문 문구, 같은 평가 문장으로 평가됐는지 먼저 확인한 뒤 다음을 검사한다. 각 모델은 자기 임계값(`calibration.json`)으로 판정한다. 기준은 `configs/bench.yaml` 의 `gate`.
+두 모델이 같은 판정 질문, 같은 평가 문장으로 평가됐는지 먼저 확인한 뒤 다음을 검사한다. 각 모델은 자기 임계값(`calibration.json`)으로 판정한다. 기준은 `configs/bench.yaml` 의 `gate`.
 
 | 검사 | 기본 기준 |
 |---|---|
@@ -146,5 +147,5 @@ make compare MODEL=r2 BASE=r1
 
 1. 주기적으로 운영 로그에서 검토 큐를 만들고 검토한다. 판단이 갈린 문장은 확신도 0.6~0.8 로 넣는다.
 2. 검토 결과를 기간별 학습용 데이터셋(`training/review-YYYY-MM/`)으로 쌓는다.
-3. 현재 모델을 기준으로 새 버전을 학습하고(`make train BASE=<현재> NAME=<새 버전> DATA=seed,review-...`), 평가한 뒤 `make compare` 를 통과한 버전만 쓴다.
+3. 현재 모델을 기준으로 새 버전을 학습하고(`make train BASE=trained/<현재> NAME=<새 버전> DATA=seed,review-...`), 평가한 뒤 `make compare` 를 통과한 버전만 쓴다.
 4. 평가용 데이터셋을 바꾸거나 추가하면 비교할 모델들을 모두 다시 평가한다(`make bench MODEL=...`, 이미 평가한 데이터셋은 건너뛴다).

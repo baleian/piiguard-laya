@@ -3,7 +3,7 @@
 #
 #   추론(벤치마크): laya-mlx  — MLX(Metal) 로 upstream 가중치를 그대로 실행. M3 Max 기준 짧은 질문 ~7 ms (multilingual)
 #   학습(파인튜닝): torch MPS — upstream laya.train (RLCD) 가 MPS 를 지원
-#   학습한 모델은 make bench 가 처음 평가할 때 models/trained/<이름>/mlx/ 로 변환한다 (make export-mlx NAME=<이름>)
+#   모델(models/base/, models/trained/)은 make bench 가 처음 평가할 때 <모델 폴더>/mlx/ 로 변환한다 (make export-mlx MODEL=trained/<이름>)
 #
 # 사용:  scripts/mac_native.sh            (.venv 생성 + 설치)
 #        .venv/bin/piiguard-laya env           (mlx / mps 확인)
@@ -42,5 +42,5 @@ cat <<'EOF'
   make prepare                     # 기본 데이터셋 → datasets/, training/seed
   make bench                       # MLX 백엔드로 평가 (PLATFORM=mac 자동 감지)
   make train NAME=r1 DATA=seed     # MPS 로 학습
-  make bench MODEL=r1
+  make bench MODEL=trained/r1
 EOF

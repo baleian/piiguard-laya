@@ -11,9 +11,8 @@ Third-party software used as dependencies:
   - Hugging Face transformers / huggingface_hub      Apache-2.0
   - NumPy (BSD-3-Clause), PyArrow (Apache-2.0), PyYAML (MIT), pytest (MIT)
 
-Model checkpoints downloaded at run time:
+Model checkpoints downloaded at run time (to models/base/):
   - convaiinnovations/laya (multilingual, English)   Apache-2.0
-  - aac6fef/laya-multilingual-mlx, aac6fef/laya-mlx  Apache-2.0
 
 Datasets downloaded at run time:
   - KDPII DATASET REVISED, Yonsei University HamSaeM Kim's Lab and TSCIENTIFIC Co.,Ltd.
