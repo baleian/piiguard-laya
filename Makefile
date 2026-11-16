@@ -10,7 +10,7 @@
 #   cpu  : Docker CPU (linux/amd64, linux/arm64, 맥의 Docker) → compose 서비스 cpu
 #   mac  : Apple Silicon 네이티브 (.venv, MLX 추론 / MPS 학습)  → make mac-setup 으로 먼저 설치
 
-PLATFORM ?= $(shell scripts/platform.sh)
+PLATFORM ?= $(shell bash scripts/platform.sh)
 MODEL    ?= laya-multilingual
 export PIIGUARD_LAYA_UID := $(shell id -u)
 export PIIGUARD_LAYA_GID := $(shell id -g)
@@ -46,7 +46,7 @@ platform: ## 감지된 플랫폼 출력
 
 build: ## 감지된 플랫폼용 이미지/환경 준비
 ifeq ($(PLATFORM),mac)
-	scripts/mac_native.sh
+	bash scripts/mac_native.sh
 else ifeq ($(PLATFORM),cuda)
 	docker compose --profile cuda build cuda
 else
@@ -64,7 +64,7 @@ build-multiarch: ## CPU 이미지 amd64+arm64 (IMAGE=repo/piiguard-laya:cpu PUSH
 	  -t $${IMAGE:-piiguard-laya:cpu-multiarch} $${PUSH:+--push} .
 
 mac-setup: ## (Apple Silicon) 네이티브 .venv: torch(MPS) + laya + laya-mlx
-	scripts/mac_native.sh
+	bash scripts/mac_native.sh
 
 dirs:
 	@mkdir -p datasets training models/trained reports feedback "$(PIIGUARD_LAYA_HF_HOME)"
