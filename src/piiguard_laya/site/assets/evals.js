@@ -32,9 +32,9 @@
   function bigCmp(bv, tv, kind, up) {
     const box = el('div', 'big');
     if (tv == null) { box.append(el('span', 'to', '–')); return box; }
-    if (bv != null) box.append(el('span', 'from', P.fmt(bv, kind)), el('span', 'from', '→'));
-    box.append(el('span', 'to', P.fmt(tv, kind)));
-    if (bv != null) box.append(P.chip(tv - bv, kind, up));
+    if (bv != null) box.append(el('span', 'from' + (bv === P.NB ? ' nb' : ''), P.fmt(bv, kind)), el('span', 'from', '→'));
+    box.append(el('span', 'to' + (tv === P.NB ? ' nb' : ''), P.fmt(tv, kind)));
+    if (bv != null && bv !== P.NB && tv !== P.NB) box.append(P.chip(tv - bv, kind, up));
     return box;
   }
   function heroCard(label, desc, bv, tv, kind, up) {
@@ -138,8 +138,9 @@
     const hero = [];
     const pa = (X, ...ks) => (X ? g(X.pooled.ALL, ...ks) : null);
     hero.push(heroCard('구분 능력 (AUROC)', '개인정보 문장을 정상 문장보다 높게 점수 매기는 능력', pa(B, 'threshold_free', 'auroc'), pa(M, 'threshold_free', 'auroc'), 'score', true));
-    if (OPS.includes('recall95')) hero.push(heroCard('오탐률 · 누락 최소화 기준', '개인정보의 95%를 잡도록 맞췄을 때 정상 문장을 잘못 막는 비율', pa(B, 'ops', 'recall95', 'fpr'), pa(M, 'ops', 'recall95', 'fpr'), 'rate', false));
-    if (OPS.includes('fpr05')) hero.push(heroCard('탐지율 · 오탐 최소화 기준', '정상 문장 오차단을 5% 수준으로 묶었을 때 잡아내는 개인정보 비율', pa(B, 'ops', 'fpr05', 'recall'), pa(M, 'ops', 'fpr05', 'recall'), 'rate', true));
+    const po = (X, o, f) => P.nb(X, o, pa(X, 'ops', o, f));  // 그 기준에서 차단하지 않는 모델은 '차단 없음'
+    if (OPS.includes('recall95')) hero.push(heroCard('오탐률 · 누락 최소화 기준', '개인정보의 95%를 잡도록 맞췄을 때 정상 문장을 잘못 막는 비율', po(B, 'recall95', 'fpr'), po(M, 'recall95', 'fpr'), 'rate', false));
+    if (OPS.includes('fpr05')) hero.push(heroCard('탐지율 · 오탐 최소화 기준', '정상 문장 오차단을 5% 수준으로 묶었을 때 잡아내는 개인정보 비율', po(B, 'fpr05', 'recall'), po(M, 'fpr05', 'recall'), 'rate', true));
     hero.push(heroCard('개인정보 유형 맞힘', '개인정보 문장에서 종류(주민번호·계좌·연락처 등)를 맞힌 비율', B ? g(B, 'classification', 'top1_accuracy') : null, g(M, 'classification', 'top1_accuracy'), 'rate', true));
     $('hero').replaceChildren(...hero);
 
@@ -148,9 +149,13 @@
       const c = el('div', 'card');
       c.append(el('h3', null, P.opName(o)), el('span', 'desc', P.opDesc(o)));
       c.append(el('span', 'small muted', '임계값 · ' + (B ? `기준 ${P.thr(B.calibration.thresholds[o])} · ` : '') + `이 모델 ${P.thr(M.calibration.thresholds[o])}`));
+      const nbB = !!B && P.noBlock(B, o), nbM = P.noBlock(M, o);
+      const note = (who) => el('p', 'nb-note', `${who}은 이 기준에서 아무 문장도 차단하지 않습니다. 정상 문장 상당수가 최고점(1.0)을 받아 목표 오탐률을 맞추는 임계값이 1 을 넘었기 때문입니다. 이때의 탐지율 · 오탐률 0% 는 실제 성능이 아닙니다.`);
+      if (nbB) c.append(note(`기준 모델(${b})`));
+      if (nbM) { c.append(note(`이 모델(${m})`)); return c; }
       const bells = el('div', 'bells'), tip = el('div', 'tip'); tip.hidden = true;
       [['accuracy', '정확도'], ['recall', '탐지율'], ['fpr', '오탐률'], ['precision', '정밀도']].forEach(([f, name]) =>
-        bells.append(bell(name, pa(B, 'ops', o, f), pa(M, 'ops', o, f), P.up[f], tip, bells)));
+        bells.append(bell(name, nbB ? null : pa(B, 'ops', o, f), pa(M, 'ops', o, f), P.up[f], tip, bells)));
       bells.append(tip);
       c.append(bells);
       return c;
@@ -163,7 +168,7 @@
       lt.append(grpRow(`${name} · 평가 문장 ${P.int(X.n)}건`, OPS.length + 1));
       [['accuracy', '정확도'], ['recall', '탐지율'], ['fpr', '오탐률']].forEach(([f, fn]) => {
         const r = el('tr'); r.append(lblCell(fn));
-        OPS.forEach((o) => r.append(td(P.cmp(B ? g(B.pooled[k], 'ops', o, f) : null, g(X, 'ops', o, f), 'rate', P.up[f]))));
+        OPS.forEach((o) => r.append(td(P.cmp(B ? P.nb(B, o, g(B.pooled[k], 'ops', o, f)) : null, P.nb(M, o, g(X, 'ops', o, f)), 'rate', P.up[f]))));
         lt.append(r);
       });
     });
@@ -177,7 +182,7 @@
         const X = M.datasets[d], Y = B && B.datasets[d];
         const r = el('tr');
         r.append(lblCell(X.title || d, `${d} · ${f === 'recall' ? '개인정보 문장 ' + P.int(X.n_pos) : '정상 문장 ' + P.int(X.n_neg)}건`));
-        OPS.forEach((o) => r.append(td(f === 'fpr' && X.n_neg === 0 ? el('span', 'na', '해당 없음') : P.cmp(g(Y, 'ops', o, f), g(X, 'ops', o, f), 'rate', P.up[f]))));
+        OPS.forEach((o) => r.append(td(f === 'fpr' && X.n_neg === 0 ? el('span', 'na', '해당 없음') : P.cmp(P.nb(B, o, g(Y, 'ops', o, f)), P.nb(M, o, g(X, 'ops', o, f)), 'rate', P.up[f]))));
         tb.append(r);
       });
       $('ds-' + f).replaceChildren(opHead(OPS, '데이터셋'), tb);
@@ -188,7 +193,7 @@
     S.labels.category_order.filter((c) => c !== 'none' && M.by_category[c]).forEach((c) => {
       const X = M.by_category[c], Y = B && B.by_category[c];
       const r = el('tr'); r.append(lblCell(P.catName(c), `개인정보 문장 ${P.int(X.n)}건`));
-      OPS.forEach((o) => r.append(td(P.cmp(g(Y, 'ops', o, 'recall'), g(X, 'ops', o, 'recall'), 'rate', true))));
+      OPS.forEach((o) => r.append(td(P.cmp(P.nb(B, o, g(Y, 'ops', o, 'recall')), P.nb(M, o, g(X, 'ops', o, 'recall')), 'rate', true))));
       ct.append(r);
     });
     if (M.classification && M.classification.n) {
@@ -211,7 +216,7 @@
         ks.forEach((k) => {
           const X = (M.by_variant || {})[k], Y = B && (B.by_variant || {})[k], vn = k.split('/')[1];
           const r = el('tr'); r.append(lblCell(P.varName(vn), `${P.int((X || Y).n)}건`));
-          OPS.forEach((o) => r.append(td(P.cmp(Y ? Y.ops[o] : null, X ? X.ops[o] : null, 'rate', up))));
+          OPS.forEach((o) => r.append(td(P.cmp(P.nb(B, o, Y ? Y.ops[o] : null), P.nb(M, o, X ? X.ops[o] : null), 'rate', up))));
           tb.append(r);
         });
       });
@@ -312,7 +317,8 @@
           if (picked.length >= 10) break;
         }
         const sec = el('div', 'sec'), hd = el('h3', null, title);
-        hd.append(el('span', 'small muted', ` · ${P.opName(op)} 기준 · 전체 ${P.int(cands.length)}건 중 ${picked.length}건`));
+        hd.append(el('span', 'small muted', ` · ${P.opName(op)} 기준 · 전체 ${P.int(cands.length)}건 중 ${picked.length}건` +
+          (B && P.noBlock(B, op) ? ' · 기준 모델은 이 기준에서 차단 없음' : '') + (P.noBlock(M, op) ? ' · 이 모델은 이 기준에서 차단 없음' : '')));
         sec.append(hd);
         if (!picked.length) { sec.append(el('p', 'muted small', '해당하는 사례가 없습니다.')); return sec; }
         const tw = el('div', 'tw'), tbl = el('table'), th = el('thead'), tr = el('tr');

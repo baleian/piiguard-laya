@@ -63,7 +63,8 @@
     const M = S.models[m], op = $('op').value, t = M.calibration.thresholds[op];
     if (reset) { shown = 100; cache = filtered(); cards(); }
     P.setHash({ model: m, op, dataset: $('ds').value });
-    $('count').textContent = `${P.int(cache.length)}건` + (cache.length > shown ? ` 중 ${shown}건 표시` : '');
+    $('count').textContent = (P.noBlock(M, op) ? '이 운영 기준에서는 임계값이 1 을 넘어 아무 문장도 차단하지 않습니다. ' : '') +
+      `${P.int(cache.length)}건` + (cache.length > shown ? ` 중 ${shown}건 표시` : '');
     $('rows').replaceChildren(...cache.slice(0, shown).map((x) => {
       const k = kindOf(x.label, x.score >= t), tr = el('tr');
       const ds = el('div'); ds.append(el('div', null, M.datasets[x.dataset] ? M.datasets[x.dataset].title : x.dataset));

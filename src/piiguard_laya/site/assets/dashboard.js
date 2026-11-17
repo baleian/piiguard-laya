@@ -5,7 +5,9 @@
   const names = P.models().sort((a, b) => String(S.models[b].model.benched_at || '').localeCompare(String(S.models[a].model.benched_at || '')));
   if (!names.length) { P.empty(document.querySelector('.wrap'), '평가한 모델이 없습니다. make bench MODEL=base/laya-multilingual'); return; }
   const OPS = ['recall95', 'fpr05', 'default'].filter((o) => names.some((n) => S.models[n].calibration.thresholds[o] != null));
-  document.getElementById('ops-desc').textContent = '운영 기준: ' + OPS.map((o) => `${P.opName(o)} — ${P.opDesc(o)}`).join(' · ');
+  const anyNB = names.some((n) => OPS.some((o) => P.noBlock(S.models[n], o)));
+  document.getElementById('ops-desc').textContent = '운영 기준: ' + OPS.map((o) => `${P.opName(o)} — ${P.opDesc(o)}`).join(' · ') +
+    (anyNB ? " · '차단 없음'은 그 기준의 임계값이 1 을 넘어 아무 문장도 막지 않는다는 뜻입니다 (정상 문장 상당수가 최고점 1.0 을 받는 모델)." : '');
 
   const modelCell = (n) => {
     const d = el('div'), a = el('a', null, n); a.href = 'evals.html#model=' + encodeURIComponent(n);
@@ -29,7 +31,7 @@
     if (f === 'auroc') return A && A.threshold_free.auroc;
     if (f === 'top1') return m.classification && m.classification.top1_accuracy;
     if (f === 'p50') return m.latency ? m.latency.p50_ms : null;
-    return A && A.ops[o] ? A.ops[o][f] : null;
+    return A && A.ops[o] ? P.nb(m, o, A.ops[o][f]) : null;  // 그 기준에서 차단하지 않으면 '차단 없음' (최고값 강조에서도 빠짐)
   };
   const t = document.getElementById('main');
   const h1 = el('tr'), h2 = el('tr');
@@ -43,7 +45,12 @@
   const tbody = el('tbody');
   names.forEach((n) => {
     const tr = el('tr'); tr.append(td(modelCell(n)));
+    let skip = 0;
     cols.forEach((c, i) => {
+      if (skip > 0) { skip--; return; }
+      if (c[1] && P.noBlock(S.models[n], c[1])) {  // 운영 기준 한 묶음(탐지율 · 오탐률 · 정확도)을 한 칸으로
+        const cell = td(P.NB_TEXT, 'num nb'); cell.colSpan = 3; tr.append(cell); skip = 2; return;
+      }
       const v = val(n, c), cell = td(c[3] === 'ms' ? (v == null ? '–' : (+v).toFixed(1) + ' ms') : P.fmt(v, c[3]), 'num');
       if (v != null && bests[i] != null && v === bests[i]) cell.classList.add('best');
       tr.append(cell);
@@ -87,6 +94,7 @@
       dsNames.forEach((d) => {
         const m = S.models[n].datasets[d], c = el('td', 'num');
         if (!m) c.textContent = '–';
+        else if (P.noBlock(S.models[n], o)) c.append(el('span', 'nb', P.NB_TEXT));
         else {
           const b = m.ops[o] || {}, x = el('div', 'cmp');
           x.append(el('span', null, '탐지 ' + P.pct(b.recall)));
@@ -109,13 +117,14 @@
   const chead = el('thead'); chead.append(ch);
   const cb = el('tbody');
   const op0 = OPS[0];
-  const cr = catKeys.map((c) => { const xs = names.map((n) => { const r = S.models[n].by_category[c]; return r && r.ops[op0] ? r.ops[op0].recall : null; }).filter((v) => v != null); return [Math.min(...xs), Math.max(...xs)]; });
+  const catVal = (n, c) => { const r = S.models[n].by_category[c]; return r && r.ops[op0] ? P.nb(S.models[n], op0, r.ops[op0].recall) : null; };
+  const cr = catKeys.map((c) => { const xs = names.map((n) => catVal(n, c)).filter((v) => v != null && v !== P.NB); return [Math.min(...xs), Math.max(...xs)]; });
   names.forEach((n) => {
     const tr = el('tr'); tr.append(td(modelCell(n)));
     catKeys.forEach((c, i) => {
-      const r = S.models[n].by_category[c], v = r && r.ops[op0] ? r.ops[op0].recall : null;
-      const cell = td(v == null ? '–' : P.pct(v), 'num');
-      if (v != null && names.length > 1) cell.style.background = tint(v, cr[i][0], cr[i][1], true);
+      const v = catVal(n, c);
+      const cell = td(v == null ? '–' : P.fmt(v, 'rate'), v === P.NB ? 'num nb' : 'num');
+      if (v != null && v !== P.NB && names.length > 1) cell.style.background = tint(v, cr[i][0], cr[i][1], true);
       tr.append(cell);
     });
     cb.append(tr);

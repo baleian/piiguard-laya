@@ -14,7 +14,13 @@
     el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; },
     td(content, cls) { const e = P.el('td', cls); if (content instanceof Node) e.append(content); else if (content != null) e.textContent = content; return e; },
     up: { accuracy: true, recall: true, fpr: false, precision: true, auroc: true, top1: true, rate: true },
-    fmt: (v, kind) => (kind === 'score' ? P.f3(v) : P.pct(v)),
+    // 임계값이 1 을 넘는 운영 기준: 정상 문장 상당수의 점수가 최고점 1.0 이라 목표 오탐률을 맞출 수 없어 아무 문장도 차단하지 않는다.
+    // 이때 계산되는 탐지율 · 오탐률(0%)은 실제 성능이 아니므로 숫자 대신 '차단 없음' 으로 보여 준다.
+    NB: Object.freeze({ noBlock: true }),
+    NB_TEXT: '차단 없음',
+    noBlock(model, op) { const t = model && model.calibration && model.calibration.thresholds ? model.calibration.thresholds[op] : null; return t != null && +t > 1; },
+    nb(model, op, v) { return v != null && P.noBlock(model, op) ? P.NB : v; },
+    fmt: (v, kind) => (v === P.NB ? P.NB_TEXT : kind === 'score' ? P.f3(v) : P.pct(v)),
     // 변화 배지. up = 값이 오를수록 좋은 지표인지
     chip(d, kind, up) {
       if (d == null || isNaN(+d)) return P.el('span', 'chip flat', '–');
@@ -25,14 +31,17 @@
     // 비교 칸: 기준 → 대상 + 변화. 기준이 없으면 대상만
     cmp(b, t, kind, up) {
       const box = P.el('div', 'cmp');
-      const has = (x) => x != null && x !== '' && !isNaN(+x);
-      if (!has(t) && !has(b)) { box.append(P.el('span', 'na', '해당 없음')); return box; }
+      const has = (x) => x != null && x !== '' && x !== P.NB && !isNaN(+x);
+      const show = (x) => has(x) || x === P.NB;
+      const span = (cls, x) => P.el('span', cls + (x === P.NB ? ' nb' : ''), P.fmt(x, kind));
+      if (!show(t) && !show(b)) { box.append(P.el('span', 'na', '해당 없음')); return box; }
       const line = P.el('span', 'line');
-      if (has(b) && has(t)) {
-        line.append(P.el('span', 'b', P.fmt(b, kind)), P.el('span', 'b', '→'), P.el('span', 't', P.fmt(t, kind)));
-        box.append(line, P.chip(t - b, kind, up));
+      if (show(b) && show(t)) {
+        line.append(span('b', b), P.el('span', 'b', '→'), span('t', t));
+        box.append(line);
+        if (has(b) && has(t)) box.append(P.chip(t - b, kind, up));  // 한쪽이 '차단 없음' 이면 변화량을 내지 않는다
       } else {
-        line.append(P.el('span', 't', P.fmt(has(t) ? t : b, kind)));
+        line.append(span('t', show(t) ? t : b));
         box.append(line);
       }
       return box;
